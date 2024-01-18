@@ -1,11 +1,11 @@
-% Script to run contrasts from the result of GLM-01 or GLM-01B
+% Script to run contrasts from the result of GLM-02 or GLM-02B
 % Author: Mengqiao Chai (Mengqiao.Chai@ugent.be)
-% Last update on: 14th, Nov, 2023
-% 4 regressors of interest, including RG-long-qc, RG-short-qc, TF-long-qc, TF-short-qc
+% Last update on: 6th, Dec, 2023
+% 4 regressors of interest, including RG-long-c1, RG-long-c2, TF-long-c1, TF-long-c2
 % Main contrasts:
-% (1) the interaction effect: (RG-long-qc - RG-short-qc)-(TF-long-qc - TF-short-qc) and viceversa(4)
-% (2) the long trial contrast: RG-long-qc - TF-long-qc and vice versa (5)
-% (3) the main effect of block type: (RG-long-qc + RG-short-qc)-(TF-long-qc + TF-short-qc) and vice versa(6)
+% (1) the interaction effect: (RG-long-c2 - RG-long-c1)-(TF-long-c2 - TF-long-c1) and viceversa(4)
+% (2) the long CTI window contrast: RG-long-c2 - TF-long-c2 and vice versa (5)
+% (3) the main effect of block type: (RG-long-c1 + RG-long-c2 + RG-short-c1)-(TF-long-c1 + TF-long-c2 + TF-short-c1) and vice versa(6)
 
 clear all; close all;
 addpath(genpath('/Users/mengqiao/Documents/fMRI_task_transform/MRI_scripts')); % to add all scripts, incl toolboxes + spm12
@@ -25,9 +25,9 @@ model_B = true;
 
 % the root directory of first level models(FLM):
 if model_B == true
-    FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01B/results';
+    FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-02B/results';
 else
-    FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01/results';
+    FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-02/results';
 end
 
 %% Defining all the contrasts of interest
@@ -39,23 +39,23 @@ cnames = {};
 connames_pos = {};        
 connames_neg = {}; 
 
-% the first contrast: Interaction --> (RG-long-qc - RG-short-qc)-(TF-long-qc - TF-short-qc)
+% the first contrast: Interaction --> (RG-long-c2 - RG-long-c1)-(TF-long-c2 - TF-long-c1)
 cnames{1} = 'interaction-RG>TF';
-connames_pos{1} = ["RG-long-qc", "TF-short-qc"];
-connames_neg{1} = ["RG-short-qc", "TF-long-qc"];
+connames_pos{1} = ["RG-long-c2", "TF-long-c1"];
+connames_neg{1} = ["RG-long-c1", "TF-long-c2"];
 
-% the second contrast: (RG-long-qc - TF-long-qc)
+% the second contrast: (RG-long-c2 - TF-long-c2)
 cnames{2} = 'long-RG>TF';
-connames_pos{2} = ["RG-long-qc"];
-connames_neg{2} = ["TF-long-qc"];
+connames_pos{2} = ["RG-long-c2"];
+connames_neg{2} = ["TF-long-c2"];
 
-% the third contrast ---> (RG-long-qc + RG-short-qc)-(TF-long-qc + TF-short-qc)
+% the third contrast ---> (RG-long-c1 + RG-long-c2 + RG-short-c1)-(TF-long-c1 + TF-long-c2 + TF-short-c1)
 cnames{3} = 'RG>TF';
-connames_pos{3} = ["RG-long-qc", "RG-short-qc"];
-connames_neg{3} = ["TF-long-qc", "TF-short-qc"];
+connames_pos{3} = ["RG-long-c1", "RG-long-c2", "RG-short-c1"];
+connames_neg{3} = ["TF-long-c1", "TF-long-c2", "TF-short-c1"];
 
 sum_contrast_pairs = size(connames_pos, 2);  % the overall number of contrast   
-sum_contrasts = sum_contrast_pairs*2;       % multiple by 2 since we always will look at the opposite contrast
+sum_contrasts = sum_contrast_pairs*2;        % multiple by 2 since we always will look at the opposite contrast
 
 % the names of opposite contrasts
 cnames{1+sum_contrast_pairs} = 'interaction-RG<TF';
@@ -121,7 +121,7 @@ for subj = subjs
     
     SPM.xCon = [contrasts];
     
-    %make contrasts
+    % make contrasts
     spm_contrasts(SPM);
     
 end
@@ -134,8 +134,8 @@ if check_con == true
         clear SPM
     end
 
-    subj_to_test = 3;
-    contrast_to_test = 3;
+    subj_to_test = 41;
+    contrast_to_test = 2;
     
     bids_subj_to_test = ['sub-00', num2str(subj_to_test)];
     subj_to_test_dir = fullfile(FLM_root_dir, bids_subj_to_test);
@@ -145,3 +145,4 @@ if check_con == true
     contrast_entries = num2cell(SPM.xCon(contrast_to_test).c);
     predictors(:,2) = contrast_entries;
 end
+

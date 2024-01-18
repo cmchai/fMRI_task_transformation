@@ -27,22 +27,47 @@ scale_this <- function(x){
 ###########################################################
 load(file = paste0(here(), "/results/bigdf_fmri_clean.Rdata"))
 glimpse(bigdf_clean)
+n_sub <- length(unique(bigdf_clean$subject))
+# 
+# start_block_df <- bigdf_clean %>%
+#   filter(run_id == "run_1") %>%
+#   group_by(subject, block_id) %>%
+#   summarise(count = n()) %>%
+#   mutate(start_block = str_sub(block_id, 1, 2)) %>%
+#   select(-c(block_id, count)) %>%
+#   ungroup()
+# 
+# bigdf_clean_aux <- bigdf_clean %>%
+#   select(-start_block) %>%
+#   left_join(start_block_df, by = "subject") %>%
+#   relocate(start_block, .after = run_id)
+# 
+# bigdf_clean <- bigdf_clean_aux
+# save(bigdf_clean, file = paste0(here(), "/results/bigdf_fmri_clean.Rdata"))
+# save(bigdf_clean_error, file = paste0(here(), "/results/bigdf_fmri_clean_error.Rdata"))
 
 length(unique(bigdf_clean$subject))
 
 bigdf_clean <- bigdf_clean %>%
   mutate(rt = rt*1000)
 
+start_block_balance <- bigdf_clean %>%
+  group_by(start_block, subject) %>%
+  summarise(count_trials = n()) %>%
+  ungroup() %>%
+  group_by(start_block) %>%
+  summarise(count_subj = n())
+
 ### step1. only include the regular trials for analysis ###
 regular_trials <- bigdf_clean %>%
   filter(trial_nature == "RG") %>%
-  select(CTI_length, rt, block_type, block_id, stim, rule, CTI, resp_map_age,
+  select(CTI_length, rt, start_block, block_type, block_id, stim, rule, CTI, resp_map_age,
          resp_map_size, resp_map_location, subject, accuracy, incongruence_score_stim, incongruence_score_rule)
 
 ### step1. only include the transform trials for analysis ###
 transform_trials <- bigdf_clean %>%
   filter(trial_nature == "TF") %>%
-  select(CTI_length, rt, block_type, block_id, stim, rule, CTI, resp_map_age,
+  select(CTI_length, rt, start_block, block_type, block_id, stim, rule, CTI, resp_map_age,
          resp_map_size, resp_map_location, subject, accuracy, incongruence_score_stim, incongruence_score_rule)
 
 ###########################################################
@@ -51,18 +76,40 @@ transform_trials <- bigdf_clean %>%
 
 # - RT summary and plotting of regular trials ========
 rt_descrip <- regular_trials %>%
-  convert_as_factor(CTI_length, subject, block_type) %>%
-  group_by(subject, block_type, CTI_length) %>%
+  convert_as_factor(CTI_length, subject, start_block, block_type) %>%
+  group_by(subject, start_block, block_type, CTI_length) %>%
   summarise(count = n(),
             meanCTI = mean(CTI),
             meanRT = mean(rt, na.rm = TRUE)) %>%
   ungroup()
 
-n_sub <- length(unique(rt_descrip$subject))
 
 # -- subplots for each subject =======================
 (
-  p <- ggplot(rt_descrip, aes(x = CTI_length, y = meanRT, color = block_type)) +
+  p_indiv <- ggplot(rt_descrip, aes(x = CTI_length, y = meanRT, color = block_type)) +
+    geom_point(size = 2.5, position = position_dodge(0.2)) +
+    geom_line(aes(group = block_type), 
+              size = 0.8, position = position_dodge(0.2), alpha = .5) +
+    scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
+    theme_bw() +
+    facet_wrap(~ subject, nrow = 5)
+)
+
+# -- subplot for each participant depend on the starting block type
+(
+  p_indiv_RGst <- ggplot(subset(rt_descrip, start_block == "RG"), aes(x = CTI_length, y = meanRT, color = block_type)) +
+    geom_point(size = 2.5, position = position_dodge(0.2)) +
+    geom_line(aes(group = block_type), 
+              size = 0.8, position = position_dodge(0.2), alpha = .5) +
+    scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
+    theme_bw() +
+    facet_wrap(~ subject, nrow = 5)
+)
+
+(
+  p_indiv_TFst <- ggplot(subset(rt_descrip, start_block == "TF"), aes(x = CTI_length, y = meanRT, color = block_type)) +
     geom_point(size = 2.5, position = position_dodge(0.2)) +
     geom_line(aes(group = block_type), 
               size = 0.8, position = position_dodge(0.2), alpha = .5) +
@@ -84,8 +131,8 @@ rt_descrip2 <- rt_descrip %>%
 group_vars(rt_descrip) # need to check the grouping variables after using "summarize" since it will drop one grouping variable 
 
 (
-  p <- ggplot(rt_descrip2, aes(x = CTI_length, y = subRT, color = block_type)) +
-    geom_point(size = 5, position = position_dodge(0.1)) +
+  p_groupRT <- ggplot(rt_descrip2, aes(x = CTI_length, y = subRT, color = block_type)) +
+    geom_point(size = 7, position = position_dodge(0.1)) +
     geom_line(aes(group = block_type), size = 1.5,
               position = position_dodge(0.1),
               linetype="dotted") +
@@ -93,15 +140,59 @@ group_vars(rt_descrip) # need to check the grouping variables after using "summa
                   width = .1, size = 1,
                   position = position_dodge(0.1)) +
     scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
-    scale_color_manual(values = c("#4E84C4", "#FC4E07"),
-                       name = "block type:",
-                       breaks = c("RG", "TF"),
-                       labels = c("Regular", "Transform")) +
-    labs(y = "RT in ms") +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
     theme_bw()
 )
 
-ggsave("RT_interaction.png", width = 4.8, height = 3.5)
+# group level plot depends on the starting block type
+
+# Start with RG block
+rt_descrip2_RGsta <- rt_descrip %>%
+  filter(start_block == "RG") %>%
+  group_by(block_type, CTI_length) %>%
+  summarise(submeanCTI = mean(meanCTI),
+            subRT = mean(meanRT, na.rm = TRUE),
+            subsd = sd(meanRT, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>% # standard error
+  ungroup()
+
+(
+  p_groupRT_RGst <- ggplot(rt_descrip2_RGsta, aes(x = CTI_length, y = subRT, color = block_type)) +
+    geom_point(size = 7, position = position_dodge(0.1)) +
+    geom_line(aes(group = block_type), size = 1.5,
+              position = position_dodge(0.1),
+              linetype="dotted") +
+    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.1)) +
+    scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
+    theme_bw()
+)
+
+# Start with TF block
+rt_descrip2_TFsta <- rt_descrip %>%
+  filter(start_block == "TF") %>%
+  group_by(block_type, CTI_length) %>%
+  summarise(submeanCTI = mean(meanCTI),
+            subRT = mean(meanRT, na.rm = TRUE),
+            subsd = sd(meanRT, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>% # standard error
+  ungroup()
+
+(
+  p_groupRT_TFst <- ggplot(rt_descrip2_TFsta, aes(x = CTI_length, y = subRT, color = block_type)) +
+    geom_point(size = 7, position = position_dodge(0.1)) +
+    geom_line(aes(group = block_type), size = 1.5,
+              position = position_dodge(0.1),
+              linetype="dotted") +
+    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.1)) +
+    scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
+    theme_bw()
+)
 
 # -- plot both individual and group level ============
 (
@@ -112,69 +203,9 @@ ggsave("RT_interaction.png", width = 4.8, height = 3.5)
     geom_point(data = rt_descrip2, aes(y = subRT), size = 5) +
     geom_line(data = rt_descrip2, aes(y = subRT, group = block_type), size = 1) +
     scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
-    scale_color_manual(values = c("#4E84C4", "#FC4E07"),
-                       name = "block type:",
-                       breaks = c("RG", "TF"),
-                       labels = c("Regular", "Transform")) +
-    theme_bw()
-)
-
-# -- plotting for publication ========================
-# plot the CTI bins as categorical variables with equal distance between bins
-(
-  p <- ggplot(rt_descrip2, aes(x = CTI_bins, y = subRT, group = block_type, color = block_type)) +
-    geom_point(size = 5, position=position_dodge(0.2)) +
-    geom_line(size = 1, position=position_dodge(0.2)) +
-    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
-                  width = .2,
-                  position = position_dodge(0.2)) +
-    scale_color_manual(values = c("#4E84C4", "#FC4E07"),
-                       name = "block type:",
-                       breaks = c("RG", "TF"),
-                       labels = c("Regular", "Transform")) +
-    ylim(1050, 1200) +
-    theme_apa(base_size = 14) +
-    labs(x = "CTI bin", y = "Reaction time in ms")
-)
-
-# plot the CTI bins as continuous variables -- using the mean CTI as distance between bins
-cti_mean <- regular_trials %>%
-  filter(session == "online")
-  convert_as_factor(CTI_bins) %>%
-  group_by(CTI_bins) %>%
-  summarise(meanCTI = mean(CTI)) %>%
-  ungroup()
-
-(
-  p <- ggplot(rt_descrip2, aes(x = submeanCTI, y = subRT, group = block_type, color = block_type)) +
-    geom_point(size = 5) +
-    geom_line(size = 1) +
-    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
-                  width = .2) +
-    scale_color_manual(values = c("#4E84C4", "#FC4E07"),
-                       name = "block type:",
-                       breaks = c("RG", "TF"),
-                       labels = c("Regular", "Transform")) +
-    scale_x_continuous(breaks = cti_mean$meanCTI,
-                       labels = seq(1,6)) +    
-    ylim(1050, 1200) +
-    theme_apa(base_size = 14) +
-    labs(x = "CTI bin", y = "Reaction time in ms")
-)
-
-# add error bar
-(
-  p <- ggplot(rt_descrip, aes(x = CTI_bins, y = meanRT, color = block_type)) +
-    geom_point(size = 4, alpha = .06) +
-    geom_point(data = rt_descrip2, aes(y = subRT), size = 5,
-               position=position_dodge(0.2)) +
-    geom_pointrange(data = rt_descrip2, aes(y = subRT, ymin = subRT - subsd, ymax = subRT + subsd), size =.8,
-                    position=position_dodge(0.2)) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
-    ylim(900, 1350) +
     theme_bw()
 )
-
 
 # -- visualize the data in another way using CTI instead of CTI bins #######
 rt_descrip3 <- regular_trials %>%
@@ -187,7 +218,8 @@ rt_descrip3 <- regular_trials %>%
 rt_descrip4 <- rt_descrip3 %>%
   group_by(block_type, CTI) %>%
   summarise(subRT = mean(meanRT, na.rm = TRUE),
-            subsd = sd(meanRT, na.rm = TRUE)) %>%
+            subsd = sd(meanRT, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
   ungroup()  
 
 # plot individually
@@ -205,20 +237,44 @@ rt_descrip4 <- rt_descrip3 %>%
   p <- ggplot(rt_descrip4, aes(x = CTI, y = subRT, color = block_type)) +
     geom_point(size = 5,position=position_dodge(0.2)) +
     geom_line(aes(group = block_type), size = 1) +
+    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2)) +
     geom_vline(aes(xintercept=5000),linetype="dashed", size=1) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
+    coord_cartesian(ylim=c(1050, 1300)) +
     theme_bw()
 )
 
+# add an smooth line for publication
+(
+  p1 <- ggplot(rt_descrip4, aes(x = CTI, y = subRT, color = block_type)) +
+    geom_point(size = 5,position=position_dodge(0.2), alpha = .3) +
+    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2), alpha = .3) +
+    geom_smooth(method = "loess", span = 0.75, size = 2, linetype="dashed") +
+    geom_vline(aes(xintercept=5000),linetype="dashed", size=1) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07"),
+                       name = "block type:",
+                       breaks = c("RG", "TF"),
+                       labels = c("Regular", "Transform")) +
+    coord_cartesian(ylim=c(1050, 1300)) +
+    theme_apa(base_size = 14) +
+    theme(axis.title.x = element_blank()) +
+    labs(x = "CTI in ms", y = "Reaction time in ms") +
+    ggtitle("fMRI Experiment")
+)
+
 # -- ANOVA testing =======================
-rt_online.aov <- anova_test(
+rt_reg.aov <- anova_test(
   data = rt_descrip,
   dv = meanRT,
   wid = subject,
   within = c(block_type, CTI_length)
 )
 
-get_anova_table(rt_online.aov)
+get_anova_table(rt_reg.aov)
 
 # - RT congruency effect ============================
 # -- stimulus congruency effect ======================
@@ -278,27 +334,41 @@ regular_trials_lme <- regular_trials %>%
 contrasts(regular_trials_lme$block_type)
 contrasts(regular_trials_lme$CTI_length)
 
-# specify the model using continuous CTI #
-model_RT <- lmer(formula = rt ~ (CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type
+## specify the model using continuous CTI ---- 
+## - random intercept 
+model_conRT <- lmer(formula = rt ~ (CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type
                  + (1 | subject),
                  data = regular_trials_lme)
 
-anova(model_RT)
-summary(model_RT, correlation= FALSE)
+anova(model_conRT)
+summary(model_conRT, correlation= FALSE)
 
-# specify the model with using CTI length(short vs. long) #
-model_RT2 <- lmer(formula = rt ~ (CTI_length + incongruence_score_stim + incongruence_score_rule) * block_type
+## - random slope (maximal random structure)
+model_conRT_max <- lmer(formula = rt ~ (CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type
+                     + ((CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type | subject),
+                     data = regular_trials_lme,
+                     REML = TRUE,
+                     control = lmerControl(optimizer = "nloptwrap",
+                                           calc.derivs = FALSE,
+                                           optCtrl = list(maxfun = 2e5)))
+
+anova(model_conRT_max)
+summary(model_conRT_max, correlation= FALSE)
+
+# specify the model with using CTI length(short vs. long) ----
+## - random intercept 
+model_facRT <- lmer(formula = rt ~ (CTI_length + incongruence_score_stim + incongruence_score_rule) * block_type
                         + (1 | subject),
                         data = regular_trials_lme)
 
-anova(model_RT2)
-summary(model_RT2, correlation= FALSE)
+anova(model_facRT)
+summary(model_facRT, correlation= FALSE)
 
 regular_trials_lme$fitted_RT_Bi <- fitted(model_RT2)
 
-# the maximum model:
+## - random slope (maximal random structure)
 model_RT_max <- lmer(formula = rt ~ (CTI_length + incongruence_score_stim + incongruence_score_rule) * block_type
-                  + ((CTI_length + incongruence_score_stim + incongruence_score_rule) * block_type || subject),
+                  + ((CTI_length + incongruence_score_stim + incongruence_score_rule) * block_type | subject),
                   data = regular_trials_lme,
                   REML = TRUE,
                   control = lmerControl(optimizer = "nloptwrap",
@@ -325,7 +395,9 @@ rt_fitted_descrip2 <- regular_trials_lme %>%
     theme_bw()
 )
 
-# - analyzing on transform trials =======================
+#########################################################
+# - analyzing RT on transform trials =======================
+#########################################################
 rt_tran_descrip1 <- transform_trials %>%
   convert_as_factor(subject) %>%
   group_by(subject, CTI) %>%
@@ -336,59 +408,78 @@ rt_tran_descrip1 <- transform_trials %>%
 rt_tran_descrip2 <- rt_tran_descrip1 %>%
   group_by(CTI) %>%
   summarise(subRT = mean(meanRT, na.rm = TRUE),
-            subsd = sd(meanRT, na.rm = TRUE)) %>%
+            subsd = sd(meanRT, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
   ungroup()
 
 (
   p <- ggplot(rt_tran_descrip2, aes(x = CTI, y = subRT)) +
-    geom_point(size = 5,position=position_dodge(0.2)) +
-    geom_line(size = 1)  +
-    scale_color_manual(values = "#4E84C4") +
-    ylim(1000, 1250) +
+    geom_point(size = 5,position=position_dodge(0.2), color = "#FC4E07") +
+    geom_errorbar(aes(ymin = subRT - se, ymax = subRT + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2), alpha = .3) +
+    geom_line(size = 1, alpha = .3)  +
+    coord_cartesian(ylim=c(950, 1200)) +
     theme_bw()
 )
 
-#### the across-subject correlation between block-type diff in the regular trials and
-#### the performance of transform trials
+# - Mixed Effect Model on transform trial RT =========================
+tran_trials_lme <- transform_trials %>%
+  mutate(CTI_sec = CTI/1000) %>%
+  convert_as_factor(subject)
 
-rt_regular_6bin <- regular_trials %>%
-  filter(CTI_bins != 6) %>%
+## specify the model using continuous CTI ---- 
+## - random intercept 
+model_tran_conRT <- lmer(formula = rt ~ CTI_sec + (CTI_sec | subject),
+                    data = tran_trials_lme,
+                    REML = TRUE,
+                    control = lmerControl(optimizer = "nloptwrap",
+                                          calc.derivs = FALSE,
+                                          optCtrl = list(maxfun = 2e5)))
+
+anova(model_tran_conRT)
+summary(model_tran_conRT, correlation= FALSE)
+
+#### the across-subject correlation between block-type RT diff in the regular trials and the RT of transform trials
+
+rt_regular_long_diff <- regular_trials %>% 
+  filter(CTI_length == "long") %>%
   group_by(subject, block_type) %>%
   summarise(meanRT = mean(rt, na.rm = TRUE)) %>%
   pivot_wider(names_from = block_type, values_from = meanRT) %>%
-  mutate(sixbin_effect = TF - RG) %>%
+  mutate(long_rg_diff = TF - RG) %>% # should be > 0 if people for prepare for transform, the larger it is, the more prepared  ppl are
   ungroup() %>%
-  select(subject, sixbin_effect)
+  select(subject, long_rg_diff)
 
-subject_regularblock_mean <- regular_trials %>%
-  filter(block_type == "TF", CTI_bins == 6) %>%
+subject_TFshort_mean <- regular_trials %>%
+  filter(block_type == "TF", CTI_length == "short") %>%
   group_by(subject) %>%
-  summarise(meanRT = mean(rt, na.rm = TRUE)) %>%
+  summarise(TF_reg_short = mean(rt, na.rm = TRUE)) %>% # which serve as baseline for the tranform trial RT
   ungroup()
 
 subject_tranTrial_mean <- transform_trials %>%
   group_by(subject) %>%
   summarise(meanRT_tran = mean(rt, na.rm = TRUE)) %>%
   ungroup() %>%
-  left_join(subject_regularblock_mean, by = "subject") %>%
-  mutate(tranRT = meanRT_tran - meanRT) %>%
-  left_join(rt_regular_6bin, by = "subject")
+  left_join(subject_TFshort_mean, by = "subject") %>%
+  mutate(tranRT = meanRT_tran - TF_reg_short) %>% # the smaller it is, the better ppl perform on the transform task
+  left_join(rt_regular_long_diff, by = "subject")
   
-cor.test(subject_tranTrial_mean$tranRT, subject_tranTrial_mean$sixbin_effect)
-cor.test(subject_tranTrial_mean$meanRT_tran, subject_tranTrial_mean$sixbin_effect)
+corr1 <- cor.test(subject_tranTrial_mean$tranRT, subject_tranTrial_mean$long_rg_diff)
 
+## visualize this trend
+corr_coef <- round(corr1$estimate, 3)
+corr_p <- round(corr1$p.value, 3)
 
-# pairwise t tests
-rt_descrip %>%
-  pairwise_t_test(meanRT ~ CTI_bins,
-                  paired = TRUE,
-                  p.adjust.method = "bonferroni")
-
-rt_descrip %>%
-  pairwise_t_test(meanRT ~ block_type,
-                  paired = TRUE,
-                  p.adjust.method = "bonferroni")
-
+(
+p_corr <- ggplot(subject_tranTrial_mean, aes(x = tranRT, y = long_rg_diff)) +
+  geom_point(size = 3, alpha = .3) +
+  geom_smooth(method = "lm", color = "black") +
+  theme_classic() +
+  labs(x = "RT of transform trials(compared to short reg trials in TF blocks)", y = "The RT diff. of long trials between TF and RG blocks") +
+  annotate("text", x=0.5, y=120, label=paste0("r = ", corr_coef), size = 6) +
+  annotate("text", x=0.5, y=95, label=paste0("italic(p) == ", corr_p), size = 6, parse = TRUE)
+)
 
 ###########################################################
 ########### the Analysis on the Accuracy rate #############
@@ -398,65 +489,121 @@ load(file = paste0(here(), "/results/bigdf_fmri_clean_error.Rdata"))
 bigdf_clean_error <- bigdf_clean_error %>%
   filter(!is.na(rt)) # get rid of missing trials before analyzing accuracy
 
+# bigdf_clean_error_aux <- bigdf_clean_error %>%
+#   select(-start_block) %>%
+#   left_join(start_block_df, by = "subject") %>%
+#   relocate(start_block, .after = run_id)
+# 
+# bigdf_clean_error <- bigdf_clean_error_aux
+
 ### step1. only include the regular trials for analysis ###
 regular_trials_error <- bigdf_clean_error %>%
   filter(trial_nature == "RG") %>%
-  select(rt, block_type, block_id, stim, rule, CTI, resp_map_age,
+  select(rt, start_block, block_type, block_id, stim, rule, CTI, resp_map_age,
          resp_map_size, resp_map_location, subject, accuracy, CTI_length,
          incongruence_score_stim, incongruence_score_rule)
 
 tran_trials_error <- bigdf_clean_error %>%
   filter(trial_nature == "TF") %>%
-  select(rt, block_type, block_id, stim, rule, CTI, resp_map_age,
+  select(rt, start_block, block_type, block_id, stim, rule, CTI, resp_map_age,
          resp_map_size, resp_map_location, subject, accuracy, CTI_length,
          incongruence_score_stim, incongruence_score_rule) %>%
   mutate(ACC_bi = if_else(accuracy == TRUE, 1, 0))
 
 ### step2. compare the subject level accuracy rate between regular and transform block
-
 accRate_descrip <- regular_trials_error %>%
-  group_by(block_type, subject, CTI_length) %>%
+  group_by(subject, block_type, CTI_length) %>%
   summarise(count = n(),
             accRate = sum(accuracy)/length(accuracy)) %>%
   ungroup()
 
 accRate_descrip2 <- accRate_descrip %>%
   group_by(block_type, CTI_length) %>%
-  summarise(subaccRate = mean(accRate, na.rm = TRUE)) %>%
+  summarise(subaccRate = mean(accRate, na.rm = TRUE),
+            subsd = sd(accRate, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
   ungroup()
 
 (
-  p <- ggplot(accRate_descrip, aes(x = CTI_length, y = accRate, color = block_type)) +
-    geom_point(size = 4, alpha = .05) +
-    geom_point(data = accRate_descrip2, aes(y = subaccRate), 
-               size = 5, position=position_dodge(0.2)) +
-    geom_line(data = accRate_descrip2, aes(y = subaccRate, group = block_type), 
-              size = 1, position=position_dodge(0.2)) +
+  p <- ggplot(accRate_descrip2, aes(x = CTI_length, y = subaccRate, color = block_type)) +
+    geom_point(size = 5, position=position_dodge(0.2)) +
+    geom_line(aes(group = block_type), size = 1, position=position_dodge(0.2)) +
+    geom_errorbar(aes(ymin = subaccRate - se, ymax = subaccRate + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2)) +
     scale_x_discrete(name = "CTI length", limits = c("short", "long")) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
-    ylim(0.87, 0.95) +
+    coord_cartesian(ylim=c(0.87, 0.915)) +
+    labs(y = "accuracy") +
     theme_bw()
 )
 
-### step 4. visualize the data w/o the bins ###
-accRate_descrip4 <- regular_trials_error %>%
-  group_by(block_type, CTI) %>%
-  summarise(grandAccRate = sum(accuracy)/length(accuracy)) %>%
+# -- visualize the data in another way using CTI instead of CTI length #######
+accRate_descrip3 <- regular_trials_error %>%
+  group_by(subject, block_type, CTI) %>%
+  summarise(count = n(),
+            accRate = sum(accuracy)/length(accuracy)) %>%
   ungroup()
 
+accRate_descrip4 <- accRate_descrip3 %>%
+  group_by(block_type, CTI) %>%
+  summarise(subaccRate = mean(accRate, na.rm = TRUE),
+            subsd = sd(accRate, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
+  ungroup() 
+
+# plot individually
 (
-  p <- ggplot(accRate_descrip4, aes(x = CTI, y = grandAccRate, color = block_type)) +
-    geom_point(size = 5, position=position_dodge(0.2)) +
-    geom_line(aes(group = block_type), 
-              size = 1, position=position_dodge(0.2)) +
+  p <- ggplot(accRate_descrip3, aes(x = CTI, y = accRate, color = block_type)) +
+    geom_point(size = 1,position=position_dodge(0.2)) +
+    geom_line(aes(group = block_type), size = 0.5, position=position_dodge(0.2)) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
-    ylim(0.75, 0.99) +
+    theme_bw() +
+    facet_wrap(~ subject, nrow = 4)
+)
+
+# plot group level
+(
+  p <- ggplot(accRate_descrip4, aes(x = CTI, y = subaccRate, color = block_type)) +
+    geom_point(size = 5,position=position_dodge(0.2)) +
+    geom_line(aes(group = block_type), size = 1) +
+    geom_errorbar(aes(ymin = subaccRate - se, ymax = subaccRate + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2)) +
+    geom_vline(aes(xintercept=5000),linetype="dashed", size=1) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
+    coord_cartesian(ylim=c(0.75, 1)) +
     theme_bw()
 )
 
+# add an smooth line for publication
+(
+  p1 <- ggplot(accRate_descrip4, aes(x = CTI, y = subaccRate, color = block_type)) +
+    geom_point(size = 5,position=position_dodge(0.2), alpha = .3) +
+    geom_smooth(method = "loess", span = 0.75, size = 2, linetype="dashed") +
+    geom_vline(aes(xintercept=5000),linetype="dashed", size=1) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07"),
+                       name = "block type:",
+                       breaks = c("RG", "TF"),
+                       labels = c("Regular", "Transform")) +
+    coord_cartesian(ylim=c(0.78, 1)) +
+    theme_apa(base_size = 14) +
+    labs(x = "CTI in ms", y = "accuracy") +
+    ggtitle("fMRI Experiment")
+)
 
-### the mixed effect logistic regression model on ACC ###
 
+### the ANOVA analysis on ACC ----
+acc_reg.aov <- anova_test(
+  data = accRate_descrip,
+  dv = accRate,
+  wid = subject,
+  within = c(block_type, CTI_length)
+)
+
+get_anova_table(acc_reg.aov)
+
+### the mixed effect logistic regression model on ACC ----
 options(contrasts = c("contr.sum","contr.poly"))
 options(scipen = FALSE)
 
@@ -468,6 +615,7 @@ regular_trials_error_lme <- regular_trials_error %>%
 
 contrasts(regular_trials_error_lme$block_type)
 
+### -- random intercept model
 model_acc <- glmer(formula = ACC_bi ~ (CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type 
                    + (1|subject),
                    data = regular_trials_error_lme,
@@ -477,91 +625,112 @@ model_acc <- glmer(formula = ACC_bi ~ (CTI_sec + incongruence_score_stim + incon
 anova(model_acc)
 summary(model_acc, correlation= FALSE)
 
-# for reporting #
-statsACC.table <- as.data.frame(summary(model_acc)$coefficients)
-names(statsACC.table) <- c("estimate", "SE", "z value", "p")
+### -- maximal model
+model_ac_max <- glmer(formula = ACC_bi ~ (CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type 
+                    + ((CTI_sec + incongruence_score_stim + incongruence_score_rule) * block_type | subject),
+                    data = regular_trials_error_lme,
+                    family = binomial,
+                    REML = TRUE,
+                    control = glmerControl(optimizer = "nloptwrap",
+                                         calc.derivs = FALSE,
+                                         optCtrl = list(maxfun = 2e5)))
 
-statsACC.table2 <- as.data.frame(matrix(ncol = 4, nrow = 8))
-colnames(statsACC.table2) <- c('Coefficient', 'Estimate', 'SE', 'p value')
+anova(model_acc_max)
+summary(model_ac_max, correlation= FALSE)
+saveRDS(model_ac_max, file = paste0(here(), "/results/lme_max_acc.rda"))
 
-statsACC.table2$Coefficient <- c("(Intercept)",
-                                  "CTI",
-                                  "incongruency score of stimulus type",
-                                  "incongruency score of task rule",
-                                  "block type",
-                                  "CTI:block type",
-                                  "incongruency score of stimulus type:block type",
-                                  "incongruency score of task rule:block type")
-statsACC.table2$Estimate <- round(statsACC.table$estimate, digit= 3)
-statsACC.table2$SE <- round(statsACC.table$SE, digit= 3)
-statsACC.table2$"p value" <- round(statsACC.table$p, digit= 4)
+emtrends(model_ac_max, ~ block_type, var = 'incongruence_score_stim')
 
-fun_round <- function(x) {formatC(x, format = "f", digits = 3)}
+############################################################
+# - Analyzing accuracy on transform trials =================
+############################################################
+acc_tran_descrip1 <- tran_trials_error %>%
+  convert_as_factor(subject) %>%
+  group_by(subject, CTI) %>%
+  summarise(count = n(),
+            accRate = sum(accuracy)/length(accuracy)) %>%
+  ungroup()
 
-tableACC_ready <- nice_table(statsACC.table2, 
-                             col.format.p = 4, 
-                             col.format.custom = 2:3,
-                             format.custom = "fun_round",
-                             title = "Table \nThe result of mixed effect regression model on accuracy in rule transform experiment", 
-                             footnote = "SE = standard error.\n* denotes p < .05,
-                          ** denotes p < .01, *** denates p < .001")
-tableACC_ready
-save_as_docx(table_ready, path = paste0(getwd(), "/nice_tablehere.docx"))
+acc_tran_descrip2 <- acc_tran_descrip1 %>%
+  group_by(CTI) %>%
+  summarise(subaccRate = mean(accRate, na.rm = TRUE),
+            subsd = sd(accRate, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
+  ungroup()
 
-# merging RT and ACC data #
-colnames(stats.table2) <- c('Coefficient', 'RT.Estimate', 'RT.SE', 'RT.p value')
-colnames(statsACC.table2) <- c('Coefficient', 'ACC.Estimate', 'ACC.SE', 'ACC.p value')
+(
+  p <- ggplot(acc_tran_descrip2, aes(x = CTI, y = subaccRate)) +
+    geom_point(size = 5,position=position_dodge(0.2), color = "#FC4E07") +
+    geom_errorbar(aes(ymin = subaccRate - se, ymax = subaccRate + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2), alpha = .3) +
+    geom_line(size = 1, alpha = .3)  +
+    coord_cartesian(ylim=c(0.80, 1)) +
+    theme_bw()
+)
 
-statsALL.table <- merge(x=stats.table2, y=statsACC.table2,
-                        by='Coefficient', all.x = TRUE)
+# - Mixed Effect Model on transform trial RT =====================
+tran_trials_lme <- transform_trials %>%
+  mutate(CTI_sec = CTI/1000) %>%
+  convert_as_factor(subject)
 
-tableALL_ready <- nice_table(statsALL.table, 
-                             col.format.p = c(4,7), 
-                             col.format.custom = c(2:3,5:6),
-                             format.custom = "fun_round",
-                             separate.header = TRUE,
-                             italics = seq(statsALL.table),
-                             title = "Table 1 \nThe result of mixed effect regression model on RT and accuray in rule transform experiment", 
-                             footnote = "RT = reaction time, ACC = accuracy, SE = standard error.\n* denotes p < .05, ** denotes p < .01, *** denotes p < .001")
+## specify the model using continuous CTI ---- 
+## - random intercept 
+model_tran_conRT <- lmer(formula = rt ~ CTI_sec + (CTI_sec | subject),
+                         data = tran_trials_lme,
+                         REML = TRUE,
+                         control = lmerControl(optimizer = "nloptwrap",
+                                               calc.derivs = FALSE,
+                                               optCtrl = list(maxfun = 2e5)))
 
-tableALL_ready
-save_as_docx(tableALL_ready, path = paste0(here(), "/APA_table_rule_tran.docx"))
+anova(model_tran_conRT)
+summary(model_tran_conRT, correlation= FALSE)
 
-# visualize the 2-way interaction between CTI and block type
-emmip(model_acc, block_type ~ CTI_sec, cov.reduce = range, type = "response")
-emtrends(model_acc, ~ block_type, var = 'CTI_sec', type = "response")
-test(emtrends(model_acc, ~ block_type, var = 'CTI_sec'))
-# 3-way interaction #
-model_acc2 <- glmer(formula = ACC_bi ~ (incongruence_score_stim + incongruence_score_rule) * CTI_sec * block_type
-                    + (1 | subject),
-                   data = regular_trials_error_lme,
-                   family = binomial,
-                   control = glmerControl(optimizer = "bobyqa"))
-anova(model_acc2)
-summary(model_acc2, correlation= FALSE)
-
-regular_trials_error_lme %>%
-  convert_as_factor(incongruence_score_rule) %>%
-  mutate(CTI_bins = as.numeric(CTI_bins)) %>%
-  group_by(incongruence_score_rule, CTI_bins) %>%
-  summarise(meanAcc = sum(accuracy)/length(accuracy)) %>%
-  ggplot(aes(x = incongruence_score_rule, y = meanAcc, color = CTI_bins)) +
-  geom_point(size = 4) +
-  geom_line(aes(group = CTI_bins), size = 1) +
-  theme_bw()
-
-
-### logistic regression on acc of transform trials ###
-
+### logistic regression on ACC of Transform trials ###
 tran_trials_error_lme <- tran_trials_error %>%
-  mutate(CTI_sec = CTI/1000)
+  mutate(CTI_sec = CTI/1000) %>%
+  convert_as_factor(subject)
 
-model_tranAcc <- glmer(formula = ACC_bi ~ CTI_sec + (1|subject),
+model_tranAcc <- glmer(formula = ACC_bi ~ CTI_sec + (CTI_sec|subject),
                        data = tran_trials_error_lme,
                        family = binomial,
-                       control = glmerControl(optimizer = "bobyqa"))
+                       control = glmerControl(optimizer = "bobyqa",
+                                              calc.derivs = FALSE,
+                                              optCtrl = list(maxfun = 2e5)))
 
-summary(model_tranAcc)
+summary(model_tranAcc, correlation = FALSE)
+
+
+### Explore the between-subject correlation between the RT main effect and the ACC in transform trials
+acc_subject_TFshort_mean <- regular_trials_error %>%
+  filter(block_type == "TF", CTI_length == "short") %>%
+  group_by(subject) %>%
+  summarise(acc_TF_reg_short = sum(accuracy)/length(accuracy)) %>% # which serve as baseline for the Transform trial accuracy
+  ungroup()
+
+acc_subject_tranTrial_mean <- tran_trials_error %>%
+  group_by(subject) %>%
+  summarise(subaccRate_tran = sum(accuracy)/length(accuracy)) %>%
+  ungroup() %>%
+  left_join(acc_subject_TFshort_mean, by = "subject") %>%
+  mutate(tranACC = subaccRate_tran - acc_TF_reg_short) %>% # the higher it is, the better ppl perform on the transform task
+  left_join(rt_regular_long_diff, by = "subject")
+
+corr2 <- cor.test(acc_subject_tranTrial_mean$subaccRate_tran, acc_subject_tranTrial_mean$long_rg_diff)
+
+## visualize this trend
+corr_coef2 <- round(corr2$estimate, 3)
+corr_p2 <- round(corr2$p.value, 3)
+
+(
+  p_corr2 <- ggplot(acc_subject_tranTrial_mean, aes(x = tranACC, y = long_rg_diff)) +
+    geom_point(size = 3, alpha = .3) +
+    geom_smooth(method = "lm", color = "black") +
+    theme_classic() +
+    labs(x = "ACC of transform trials(compared to short reg trials in TF blocks)", y = "The RT diff. of long trials between TF and RG blocks") +
+    annotate("text", x=0, y=120, label=paste0("r = ", corr_coef2), size = 6) +
+    annotate("text", x=0, y=95, label=paste0("italic(p) == ", corr_p2), size = 6, parse = TRUE)
+)
 
 ###########################################################
 ############# Congruence effect on accRate ################
@@ -579,33 +748,23 @@ acc_cgc_stim <- regular_trials_error %>%
 
 acc_cgc_stim2 <- acc_cgc_stim %>%
   group_by(block_type, incongruence_score_stim) %>%
-  summarise(subaccRate = mean(accRate, na.rm = TRUE)) %>%
+  summarise(subaccRate = mean(accRate, na.rm = TRUE),
+            subsd = sd(accRate, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
   ungroup()
 
 (
-  p <- ggplot(acc_cgc_stim, aes(x = incongruence_score_stim, y = accRate, color = block_type)) +
-    geom_point(size = 2, position=position_dodge(0.2), alpha = .08) +
-    geom_line(aes(group = interaction(subject, block_type)), 
-              size = 1, position=position_dodge(0.2), alpha = .2) +
-    geom_point(data = acc_cgc_stim2, aes(y = subaccRate), 
-               size = 6, position=position_dodge(0.2)) +
-    geom_line(data = acc_cgc_stim2, aes(y = subaccRate, group = block_type),
-              size = 1.7, position=position_dodge(0.2)) +
+  p <- ggplot(acc_cgc_stim2, aes(x = incongruence_score_stim, y = subaccRate, color = block_type)) +
+    geom_point(size = 6, position=position_dodge(0.2)) +
+    geom_line(aes(group = block_type), size = 1.7, position=position_dodge(0.2)) +
+    geom_errorbar(aes(ymin = subaccRate - se, ymax = subaccRate + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2)) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
-    ylim(0.7, 1.0) +
+    ylim(0.85, 0.93) +
+    labs(x = "stimulus incongruency", y = "average accuracy") +
     theme_bw()
 )
-
-
-acc_cgc_stim.aov <- anova_test(
-  data = acc_cgc_stim,
-  dv = accRate,
-  wid = subject,
-  within = c(block_type, incongruence_score_stim)
-)
-
-get_anova_table(acc_cgc_stim.aov)
-
 
 # the rule congruence effect
 
@@ -618,32 +777,23 @@ acc_cgc_rule <- regular_trials_error %>%
 
 acc_cgc_rule2 <- acc_cgc_rule %>%
   group_by(block_type, incongruence_score_rule) %>%
-  summarise(subaccRate = mean(accRate, na.rm = TRUE)) %>%
+  summarise(subaccRate = mean(accRate, na.rm = TRUE),
+            subsd = sd(accRate, na.rm = TRUE),
+            se = subsd/((n_sub)^.5)) %>%
   ungroup()
 
 (
-  p <- ggplot(acc_cgc_rule, aes(x = incongruence_score_rule, y = accRate, color = block_type)) +
-    geom_point(size = 2, position=position_dodge(0.2), alpha = .08) +
-    geom_line(aes(group = interaction(subject, block_type)), 
-              size = 1, position=position_dodge(0.2), alpha = .2) +
-    geom_point(data = acc_cgc_rule2, aes(y = subaccRate), 
-               size = 6, position=position_dodge(0.2)) +
-    geom_line(data = acc_cgc_rule2, aes(y = subaccRate, group = block_type),
-              size = 1.7, position=position_dodge(0.2)) +
+  p <- ggplot(acc_cgc_rule2, aes(x = incongruence_score_rule, y = subaccRate, color = block_type)) +
+    geom_point(size = 6, position=position_dodge(0.2)) +
+    geom_line(aes(group = block_type), size = 1.7, position=position_dodge(0.2)) +
+    geom_errorbar(aes(ymin = subaccRate - se, ymax = subaccRate + se),
+                  width = .1, size = 1,
+                  position = position_dodge(0.2)) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07")) +
-    ylim(0.85, 0.95) +
+    ylim(0.80, 0.96) +
+    labs(x = "task rule incongruency", y = "average accuracy") +
     theme_bw()
 )
-
-acc_cgc_rule.aov <- anova_test(
-  data = acc_cgc_rule,
-  dv = accRate,
-  wid = subject,
-  within = c(block_type, incongruence_score_rule)
-)
-
-get_anova_table(acc_cgc_rule.aov)
-
 
 #################################################################################
 ############# Congruency effect on IES(inverse efficiency score) ################

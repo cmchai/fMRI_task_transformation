@@ -1,4 +1,5 @@
-% Script to run GLM-01 or GLM-01B for the Task Transformation Paradigm
+% Script to run FIR-01 for the Task Transformation Paradigm
+% In FIR-01A, only 6 TRs were included, not run for subj46:49; in FIR-02B, 10 TRs were included
 % images are preprocessed using fMRIprep with SYN as the sdc approach
 % For each fucntional run, there are 5 dummy scans that need to exclude before GLM
 % Images should be smoothed before the GLM
@@ -8,26 +9,20 @@ clear all; close all;
 addpath(genpath('/Users/mengqiao/Documents/fMRI_task_transform/MRI_scripts')); % to add all scripts, incl toolboxes + spm12
 addpath(genpath('/Users/mengqiao/Documents/MATLAB/packages/spm12'));
 
-% define which sub-GLM model to run
-model_B = true;
+% define de correct path of all the folders
+event_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/FIR-01B/events';
+output_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/FIR-01B/results';
 
-if model_B == true
-    event_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01B/events';
-    output_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01B/results';
-else
-    event_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01/events';
-    output_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01/results';
-end
-
-preproc_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/preprocess/results_fmriprep/new_results/prep_23.1.0';
+preproc_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/preprocess/results_fmriprep/new_results/prep_23.1.0';      
 conf_regs_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01/events'; % which is in the GLM-01 event folder
 
+% the directory for the functional images in bids format
 bids_func = 'func';
 
 % Define all the participants that you want to run
 subjs_all = [2:5,7:11,13:17,20:44,46:49]; % should be 43 in total
 
-subjs = [4:5,7:11,13:17,20:44,46:49]; % subjects that will be run
+subjs = [31:44,46:49]; % subjects that will be run
 n_ses = 2;       % two scanning sessions, which is different from "sess" in SPM
 n_run = 4;       % number of run per session
 n_dummy = 5;     % number of dummy scans
@@ -91,7 +86,7 @@ for subj = subjs
             
             matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).scans = smth_imgs_3d;
 
-            % specify the event onsets(and the corresponding durations if applied)
+            % specify the event onsets
             events_run = dir(fullfile(event_subj_dir, sprintf('*run-%d*condition*.txt',sess_spm))); % which is a structure
             n_cond = size(events_run, 1); % the number of *.txt files corresponds to how many predictors(conditions)
             
@@ -102,13 +97,7 @@ for subj = subjs
                 
                 matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).name = name_cond;
                 matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).onset = table2array(event_table_cond(:,end-2));
-
-                if contains(name_cond, '-qc') % if it is the predictor of task cue + CTI
-                    matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).duration = table2array(event_table_cond(:,end));
-                else
-                    matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).duration = 0;
-                end
-
+                matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).duration = 0;
                 matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).tmod = 0;
                 matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).pmod = struct('name', {}, 'param', {}, 'poly', {});
                 matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).cond(cond).orth = 0;
@@ -122,7 +111,8 @@ for subj = subjs
     end
     % ********* the rest of batchjob specifications ***********
     matlabbatch{1}.spm.stats.fmri_spec.fact = struct('name', {}, 'levels', {});
-    matlabbatch{1}.spm.stats.fmri_spec.bases.hrf.derivs = [0 0];
+    matlabbatch{1}.spm.stats.fmri_spec.bases.fir.length = 20;
+    matlabbatch{1}.spm.stats.fmri_spec.bases.fir.order = 10;
     matlabbatch{1}.spm.stats.fmri_spec.volt = 1;
     matlabbatch{1}.spm.stats.fmri_spec.global = 'None';
     matlabbatch{1}.spm.stats.fmri_spec.mthresh = 0.95;

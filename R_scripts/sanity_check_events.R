@@ -21,7 +21,7 @@ root_dir <- here("scanner")
 root_o_dir <- "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/sanity_check/events"
 
 all_subjs <- c(2:5,7:11,13:17,20:44,46:49)
-subjs <- c(2,4,5) # subjects to run
+subjs <- c(43,47,48,14,24,22,37,25,26,16,36) # subjects to run
 
 for (subj in subjs) { # loop over each participant
   
