@@ -3,6 +3,7 @@
 """
 Created on Wed Jan 31 13:49:53 2024
 ROI decoding on the task transformation paradigm
+Script for trying out
 @author: mengqiao
 """
 
@@ -18,13 +19,14 @@ import nibabel as nib
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import sklearn.svm as svm
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import LeaveOneGroupOut
 
 #%% general settings
 
-FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/multivariate/GLM-02M/results'
+FLM_root_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M-B/results'
 ROIs_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/ROI'
 
 ROIs_schemes = ['GLM-02_con-5']
@@ -44,14 +46,15 @@ subj_dir = os.path.join(FLM_root_dir, bids_subj)
 #%% import and prepare data and labels for the subsequent decoding
 
 # prepare the image
-d4_file = 'sub-003_spmT_RG-short_4D.nii' 
+d4_file = 'sub-003_smth8_spmT_ALL-short_4D.nii' 
 d4_path = os.path.join(subj_dir, d4_file)
 big_4D = image.load_img(d4_path)
 
 # load in ROI image
 ROI_path = os.path.join(ROIs_dir, ROI)
 ROI_3d = image.load_img(ROI_path)
-plotting.plot_roi(ROI_3d)
+plotting.plot_roi(ROI_3d,black_bg=True)
+plotting.plot_glass_brain(ROI_3d)
 
 # resample the ROI to match the 4D feature file
 ROI_3d_resamp = image.resample_to_img(ROI_3d, big_4D, interpolation='nearest')
@@ -62,6 +65,9 @@ np.unique(ROI_3d_resamp_data) # check the unique values, should be 0 and 1
 np.sum(ROI_3d_resamp_data) # how many voxels in the ROI
 
 R_lpfc = masking.apply_mask(big_4D, ROI_3d_resamp)
+# aa1 = masking.apply_mask(big_4D, roi_resample)
+# aat = np.transpose(aa)
+# aat0 = np.nan_to_num(aat, nan=0)
 
 #%% import the labels and run infos
 
@@ -70,8 +76,8 @@ labels_path = os.path.join(subj_dir, labels_file)
 
 labels = pd.read_csv(labels_path, sep=",")
 
-S_all = labels['tasks'].to_numpy()
-groups = labels['runs'].to_numpy()
+S_all = labels['tasks'].to_numpy().copy()
+groups = labels['runs'].to_numpy().copy()
 
 #%% start the decoding with leave-one-run out approach
 
@@ -82,7 +88,8 @@ n_groups = np.unique(groups).size
 acc_cv = np.zeros(n_groups)
 
 # initializing decoder
-# clf = LogisticRegression(solver='liblinear', multi_class='auto')
+clf = LogisticRegression(solver='liblinear', multi_class='auto')
+clf = LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto')
 clf = svm.SVC(kernel='linear')
 
 
@@ -107,8 +114,47 @@ for i, fold in enumerate(folds):
 acc_cv_average = np.mean(acc_cv)
     
 
+#%% try an atlas
+
+glasser = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/HCP-MMP1/HCP-MMP1_2mm.nii.gz'
+glasser1 = image.load_img(glasser)
+plotting.plot_roi(glasser1)
+
+glasser_data = glasser1.get_fdata()
+
+glasser_data_flat = glasser_data.flatten()
+
+rois = np.arange(1,361)
+
+roi = glasser_data == 5
+roi_img = nib.Nifti1Image(roi, glasser1.affine, glasser1.header)
+roi_idx = np.where(glasser_data==5)[0]
+
+affine = glasser1.affine
+affine_4d = big_4D.affine
+
+# resample the glasser atlas to match the 4D feature file
+roi_resample = image.resample_to_img(roi_img, big_4D, interpolation='nearest')
+plotting.plot_roi(roi_resample)
+roi_resample_data = roi_resample.get_fdata()
+
+big_4D_data = big_4D.get_fdata()
+aa = big_4D_data[roi_resample_data]
+
+#%% try another way to extract data from ROI
+
+glasser = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/HCP-MMP1/HCP-MMP1_25mm.nii'
+glasser1 = image.load_img(glasser)
+plotting.plot_roi(glasser1)
+glasser_map = glasser1.get_fdata()
+glasser_roi5_mask = glasser_map == 5
+
+ROI_data = big_4D_data[glasser_roi5_mask]
+ROI_data_tr = np.transpose(ROI_data)
 
 
-
+os.chdir('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/schaefer_2018/schaefer_2018')
+os.getcwd()
+nib.nifti1.save(brain_atlas_sch_img_resamp, 'Schaefer2018_400Parcels_17Networks_order_FSLMNI152_2.5mm.nii.gz')
 
 
