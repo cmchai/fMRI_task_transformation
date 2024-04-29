@@ -1,0 +1,21 @@
+#!/bin/bash
+    
+#PBS -m abe
+#PBS -M mengqiao.chai@ugent.be
+#PBS -l nodes=1:ppn=18
+#PBS -l mem=15gb
+#PBS -N searchlight_decoding
+#PBS -V
+#PBS -l walltime=45:00:00 
+
+module purge
+module load Nilearn/0.10.3-gfbf-2023a
+module load NiBabel/5.2.0-gfbf-2023a
+module load scikit-learn/1.4.0-gfbf-2023b
+
+cd $PBS_O_WORKDIR
+python ./task_decoding_searchlight_hpc.py $subj
+
+### This script is submitted to the cluster with the following two commands:
+# module load worker/1.6.8-intel-2018a    ### this time we cannot include this command in the script itself because otherwise the next command will not work
+# wsub -data subjs.csv -batch searchlight_decoding.pbs

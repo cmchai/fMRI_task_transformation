@@ -12,7 +12,7 @@ addpath(genpath('/Users/mengqiao/Documents/fMRI_task_transform/MRI_scripts')); %
 addpath(genpath('/Users/mengqiao/Documents/MATLAB/packages/spm12'));
 
 % want to check some contrast or not? the corrreponding code placed at the end of script
-check_con = false;
+check_con = true;
 
 % Define all the participants that you want to run
 subjs_all = [2:5,7:11,13:17,20:44,46:49]; % should be 43 in total
@@ -21,13 +21,13 @@ subjs_all = [2:5,7:11,13:17,20:44,46:49]; % should be 43 in total
 subjs = [7:11,13:17,20:44,46:49];
 
 % define which sub-GLM model to run
-model_B = true;
+model_B = false;
 
 % the root directory of first level models(FLM):
 if model_B == true
     FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-02B/results';
 else
-    FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-02/results';
+    FLM_root_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02/results';  % '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-02/results';
 end
 
 %% Defining all the contrasts of interest
@@ -134,8 +134,8 @@ if check_con == true
         clear SPM
     end
 
-    subj_to_test = 41;
-    contrast_to_test = 2;
+    subj_to_test = 4;
+    contrast_to_test = 5;
     
     bids_subj_to_test = ['sub-00', num2str(subj_to_test)];
     subj_to_test_dir = fullfile(FLM_root_dir, bids_subj_to_test);

@@ -1,45 +1,38 @@
-% Script to run GLM-02M for the Task Transformation Paradigm
-% For the Multivariate Analysis regarding the task identity 
+% Script to run FIR-02 for the Task Transformation Paradigm
+% In FIR-02,the convolved stimulus onset regressors(cue2 onset for transformed trials) were added into the GLM to account for the variance induced by stimulus onset
+% These regressors come from the SPM.mat of GLM-02
 % images are preprocessed using fMRIprep with SYN as the sdc approach
-% For each functional run, there are 5 dummy scans that need to exclude before GLM
-% Images should NOOOOOOOOOOT be smoothed before the GLM
-% For exploratory purpose, images were smoothed in GLM-02M-B
-% With error trials presenting in each and every run, the number of overal resulting predictors should be 340.
+% For each fucntional run, there are 5 dummy scans that need to exclude before GLM
+% Images should be smoothed before the GLM
+% should be 356 predictors per subject(if there are error trials per block)
 
-%% 
+%% General settings
 clear all; close all;
 addpath(genpath('/Users/mengqiao/Documents/fMRI_task_transform/MRI_scripts')); % to add all scripts, incl toolboxes + spm12
 addpath(genpath('/Users/mengqiao/Documents/MATLAB/packages/spm12'));
 
-%% General Settings
-model_B = false; % model B used smoothed data(8mm)
-
-if model_B == true
-    smth_prefix = 'smth8';
-    event_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/multivariate/GLM-02M-B/events';
-    output_rootdir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M-B/results'; % save the data on the external hard drive
-else
-    event_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/multivariate/GLM-02M-B/events'; % the same event file as model B
-    output_rootdir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results';  % save the data on the external hard drive
-end
+% define de correct path of all the folders
+event_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/FIR-01B/events';
+output_rootdir = '/Volumes/extdrive/Task_Transform_GLM/FIR-02/results';
 
 preproc_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/preprocess/results_fmriprep/new_results/prep_23.1.0';      
-conf_regs_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/GLM-01/events'; % which is in the GLM-01 event folder
+conf_regs_rootdir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/univariate/FIR-02/events';  % which include the stimulus and q2 convolved onset regressors
 
 % the directory for the functional images in bids format
 bids_func = 'func';
 
 % Define all the participants that you want to run
 subjs_all = [2:5,7:11,13:17,20:44,46:49]; % should be 43 in total
-subjs_run = [2]; % subjects that are already run
-subjs = setdiff(subjs_all, subjs_run);    % subjects that will be run
+subjs = [31:44,46:49];                    % subjects that will be run
 
 n_ses = 2;       % two scanning sessions, which is different from "sess" in SPM
 n_run = 4;       % number of run per session
 n_dummy = 5;     % number of dummy scans
+smth = 8;        % in mm
+smth_prefix = ['smth', num2str(smth)];
 
 %% run the FLM for all the subjects
-for subj = subjs(31:end)
+for subj = subjs
     bids_sub = ['sub-00', num2str(subj)];
 
     % make subject level output folder if the subject specific folder does not exist yet
@@ -87,19 +80,15 @@ for subj = subjs(31:end)
             % enter the func folder
             preproc_func_dir = fullfile(preproc_subj_dir, bids_ses, bids_func);
             
-            % select the corresponding image after preprocessing, but NOOOOOOO smoothing (were smmoothed in model B)
-            if model_B == true
-                smth_img_4d = [preproc_func_dir '/' smth_prefix '_' bids_sub '_' bids_ses '_task-transform_acq-ep2d_dir-COL_run-' num2str(run) '_echo-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii'];
-            else
-                smth_img_4d = [preproc_func_dir '/' bids_sub '_' bids_ses '_task-transform_acq-ep2d_dir-COL_run-' num2str(run) '_echo-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii'];
-            end
+            % select the corresponding image after preprocessing and smoothing
+            smth_img_4d = [preproc_func_dir '/' smth_prefix '_' bids_sub '_' bids_ses '_task-transform_acq-ep2d_dir-COL_run-' num2str(run) '_echo-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii'];
             % disp(img_4d)
             smth_imgs_3d = cellstr(spm_select('expand', fullfile(smth_img_4d)));
             smth_imgs_3d = cellstr(smth_imgs_3d(n_dummy + 1 :end,:)); % IMPORTANT: get rid of dummy scans, otherwise the timing won't be correct !!!!!
             
             matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).scans = smth_imgs_3d;
 
-            % specify the event onsets(and the corresponding durations if applied)
+            % specify the event onsets
             events_run = dir(fullfile(event_subj_dir, sprintf('*run-%d*condition*.txt',sess_spm))); % which is a structure
             n_cond = size(events_run, 1); % the number of *.txt files corresponds to how many predictors(conditions)
             
@@ -117,14 +106,15 @@ for subj = subjs(31:end)
             end
 
             % specify all the nuisance regressors
-            conf_regs_name = [bids_sub '_' 'run-' num2str(sess_spm) '_conf_regs.txt'];
+            conf_regs_name = [bids_sub '_' 'run-' num2str(sess_spm) '_conf_regs_new.txt'];
             conf_regs_txt = cellstr(fullfile(conf_regs_subj_dir, conf_regs_name));
             matlabbatch{1}.spm.stats.fmri_spec.sess(sess_spm).multi_reg = cellstr(conf_regs_txt);
         end
     end
     % ********* the rest of batchjob specifications ***********
     matlabbatch{1}.spm.stats.fmri_spec.fact = struct('name', {}, 'levels', {});
-    matlabbatch{1}.spm.stats.fmri_spec.bases.hrf.derivs = [0 0];
+    matlabbatch{1}.spm.stats.fmri_spec.bases.fir.length = 20;
+    matlabbatch{1}.spm.stats.fmri_spec.bases.fir.order = 10;
     matlabbatch{1}.spm.stats.fmri_spec.volt = 1;
     matlabbatch{1}.spm.stats.fmri_spec.global = 'None';
     matlabbatch{1}.spm.stats.fmri_spec.mthresh = 0.95;

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Feb 27 15:15:23 2024
+Created on Tue Apr 23 15:15:23 2024
 
-Functions that used for decoding analysis
+Functions that used for decoding analysis on HPC
 
 @author: mengqiao
 """

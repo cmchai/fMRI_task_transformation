@@ -5,20 +5,27 @@
 % The relevant contrasts will be feed into the multivariate analysis later
 
 clear all; close all;
-addpath(genpath('/Users/mengqiao/Documents/fMRI_task_transform/MRI_scripts')); % to add all scripts, incl toolboxes + spm12
+addpath(genpath('/Users/mengqiao/Documents/fMRI_task_transform/MRI_scripts'));  % to add all scripts, incl toolboxes + spm12
 addpath(genpath('/Users/mengqiao/Documents/MATLAB/packages/spm12'));
 
 % want to check some contrast or not? the corrreponding code placed at the end of script
-check_con = true;
+check_con = false;
 
 % Define all the participants that you want to run
-subjs_all = [2:5,7:11,13:17,20:44,46:49]; % should be 43 in total
+subjs_all = [2:5,7:11,13:17,20:44,46:49];  % should be 43 in total
 
 % subjects that will be run
-subjs = [3];
+subjs_run = [];                            % subjects that are already run
+subjs = setdiff(subjs_all, subjs_run);     % subjects that will be run
 
 % the root directory of first level models(FLM):
-FLM_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/first_level/multivariate/GLM-02M/results';
+model_B = true;    % model B used smoothed data(8mm)
+
+if model_B == true
+   FLM_root_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M-B/results';  
+else
+   FLM_root_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results';
+end
 
 % initiate a list of contrast names. 
 cnames = {};
@@ -29,7 +36,7 @@ spm('defaults','FMRI')
 global defaults
 global UFp; UFp = 0.001;
 
-for subj = subjs 
+for subj = subjs
     disp(' ')
     disp('=============================================')
     disp(['Subject: ' num2str(subj)])
@@ -41,16 +48,17 @@ for subj = subjs
     
     % -----------------------------------------
     % load SPM mat
-    clear SPM % clear the SPM file from the previous participant
-    
-    subj_dir = fullfile(FLM_root_dir, bids_subj); 
+    clear SPM  % clear the SPM file from the previous participant    
+    clear contrasts % clear contrast structure of the previous participant
+
+    subj_dir = fullfile(FLM_root_dir, bids_subj);
     load(fullfile(subj_dir, 'SPM.mat'));
 
     % define the names of the contrasts, these names match the regressors' names in the SPM.mat file
     cnames = SPM.xX.name;
     
     % creating the contrast matrix
-    C = eye(length(cnames)); % the contrast matrix (length of predictors * length of predictors)
+    C = eye(length(cnames));  % the contrast matrix (length of predictors * length of predictors)
     % figure; imagesc(C); colorbar
     
     for k = 1:length(cnames)
@@ -63,9 +71,8 @@ for subj = subjs
     
     % make contrasts
     spm_contrasts(SPM);
-    
-end
 
+end
 
 %% check some contrasts by hand to see if the contrast coding makes sense
 
@@ -85,4 +92,3 @@ if check_con == true
     contrast_entries = num2cell(SPM.xCon(contrast_to_test).c);
     predictors(:,2) = contrast_entries;
 end
-

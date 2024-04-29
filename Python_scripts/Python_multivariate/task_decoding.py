@@ -71,7 +71,7 @@ R_lpfc = masking.apply_mask(big_4D, ROI_3d_resamp)
 
 #%% import the labels and run infos
 
-labels_file = 'sub-003_spmT_RG-short_labels.txt'
+labels_file = 'sub-003_smth8_spmT_ALL-short_labels.txt'
 labels_path = os.path.join(subj_dir, labels_file)
 
 labels = pd.read_csv(labels_path, sep=",")
@@ -157,4 +157,57 @@ os.chdir('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas
 os.getcwd()
 nib.nifti1.save(brain_atlas_sch_img_resamp, 'Schaefer2018_400Parcels_17Networks_order_FSLMNI152_2.5mm.nii.gz')
 
+#%% try searchlight
+
+from nilearn.decoding import SearchLight
+
+# create the brain mask
+brain_mask = image.math_img('(img.sum(axis=3) != 0).astype(np.int32)', img=big_4D)
+plotting.plot_roi(brain_mask)
+
+# the SPM derived mask
+spm_mask_file = "mask.nii"
+spm_mask_path = os.path.join(subj_dir, spm_mask_file)
+spm_mask = image.load_img(spm_mask_path)
+plotting.plot_roi(spm_mask)
+
+# create the grey matter mask
+GM_prob_dir = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/preprocess/results_fmriprep/new_results/prep_23.1.0/sub-003/anat"
+GM_prob_file = "sub-003_acq-GIfMIT1MPRAGE_run-1_space-MNI152NLin2009cAsym_label-GM_probseg.nii.gz"
+GM_prob_path = os.path.join(GM_prob_dir, GM_prob_file)
+GM_prob_img = image.load_img(GM_prob_path)
+GM_prob_img_resample = image.resample_to_img(GM_prob_img, big_4D, interpolation='continuous')
+
+plotting.plot_roi(GM_prob_img, threshold = None, colorbar=True, cmap='gray')
+plotting.plot_roi(GM_prob_img_resample,threshold = None, colorbar=True, cmap='gray')
+
+GM_mask = image.math_img('(img > 0.2).astype(np.int32)', img=GM_prob_img_resample)
+plotting.plot_roi(GM_mask)
+nib.nifti1.save(GM_mask, "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/preprocess/results_fmriprep/new_results/prep_23.1.0/sub-003/anat/GM_mask_0.2.nii.gz")
+
+GM_mask_crop = image.math_img('(np.multiply(img1, img2)).astype(np.int32)', img1=GM_mask, img2=spm_mask)
+plotting.plot_roi(GM_mask_crop)
+
+# the grey matter mask from nilearn
+GM_mask2 = masking.compute_brain_mask(big_4D, threshold=0.2, mask_type="gm")
+plotting.plot_roi(GM_mask2)
+
+# start the searchlight decoding
+sl = SearchLight(
+    mask_img=spm_mask,
+    process_mask_img=GM_mask_crop,
+    radius=5,  # 5 mm radius(2 voxels)
+    estimator=clf,
+    n_jobs=1,  # use only 1 core (for your own analyses, you might want to increase this!)
+    scoring='accuracy',
+    cv=logo,
+    verbose=True  # print a progressbar while fitting
+)
+
+sl.fit(big_4D, S_all, groups=groups)
+
+# look at the result
+sl_score_img = image.new_img_like(spm_mask, sl.scores_)
+plotting.plot_stat_map(sl_score_img, threshold=0.11)
+nib.nifti1.save(sl_score_img, "/Users/mengqiao/Documents/fMRI_task_transform/Results/sub-003_smth8_spmT_ALL-short_SL_acc.nii")
 
