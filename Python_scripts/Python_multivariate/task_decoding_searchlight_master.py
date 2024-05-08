@@ -192,9 +192,10 @@ sl_con_all_smth8_4d = image.math_img('img - 0.111111', img=sl_acc_all_smth8_4d)
 nib.nifti1.save(sl_con_all_smth8_4d, os.path.join(contrast_ouput_dir, 'sl_smth8', 'sl_con_smth8_4d.nii'))
 
 #%% create contrast image for each participant first (decoding accuray - chance level)
-chance_level = 0.111111
-contrast_ouput_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/searchlight/smth8/second_level'
-subj_decode_acc_files = funcs.search_files(result_dir, 'sub-00', 'acc.nii')
+chance_level = 0.111111  # 6 digits after .
+result_dir = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/conjunc/searchlight/smthN/after_smth8"
+contrast_ouput_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/conjunc/searchlight/smthN/after_smth8/second_level'
+subj_decode_acc_files = funcs.search_files(result_dir, 'sub-00', 'acc_smth8.nii')
 
 for subj_acc_file in subj_decode_acc_files:
     subj_acc_img = image.load_img(os.path.join(result_dir, subj_acc_file))
@@ -210,7 +211,7 @@ for subj_acc_file in subj_decode_acc_files:
 
 import glob
 
-con_files = glob.glob(os.path.join(contrast_ouput_dir, '*_con.nii'))
+con_files = glob.glob(os.path.join(contrast_ouput_dir, '*_con_smth8.nii'))
 
 # create design matrix
 
@@ -234,7 +235,7 @@ from nilearn.glm import threshold_stats_img
 
 thresholded_map1, threshold1 = threshold_stats_img(
     z_map,
-    alpha=0.05,
+    alpha=0.1,
     cluster_threshold=0,
     two_sided=False,
 )

@@ -13,7 +13,6 @@ import glob
 import sys
 
 import numpy as np
-import numpy_indexed as npi
 # import pandas as pd
 
 from nilearn import image
@@ -193,6 +192,23 @@ def extract_data_roi_byatlas(d4_data, atlas_map, ROI_idx):
     
     return data_roi
 
+def unique_preserve_order(groups):
+    """
+    Function to return the unique elements of a vector in the orginal order without reordering them 
+    
+    Parameters
+    ----------
+    groups : 1-d np array containing group identity of all samples
+
+    Returns
+    -------
+    unique elements from this vector
+
+    """
+    unique_groups, index = np.unique(groups, return_index=True)
+    sorted_index = np.argsort(index)
+    return unique_groups[sorted_index]
+
 
 def del_group_misslabel(data, labels, groups, labels_complete):
     """
@@ -211,11 +227,11 @@ def del_group_misslabel(data, labels, groups, labels_complete):
 
     """
     
-    groups_idx = np.unique(groups)
-    labels_bygroup = npi.group_by(groups).split(labels) # return a list of arrays
+    groups_idx = unique_preserve_order(groups)
+    labels_bygroup = [labels[groups == group] for group in groups_idx]    # return a list of arrays
     groups_bool = np.array([np.in1d(labels_complete, labels_1group).all() for labels_1group in labels_bygroup])
     
-    if groups_bool.all():
+    if groups_bool.all(): # if all groups are True in containing all the labels
         return data, labels, groups
     else:
         groups_include = groups_idx[groups_bool]

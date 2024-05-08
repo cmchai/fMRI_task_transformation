@@ -10,7 +10,6 @@ import os
 import paramiko
 import numpy as np
 
-
 #%% functions
 
 def generate_source_folder_list(base_path, prefix, numbers):
@@ -43,7 +42,8 @@ source_root_path = "/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results"
 hpc_root_path = "/kyukon/scratch/gent/vo/001/gvo00170/vsc43896/task_transform_fmri/FLM_4d_data/GLM-02M"
 
 subj_prefix = "sub-00"
-subj_numbers = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50))).tolist()
+subj_all_numbers = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50))).tolist()
+subj_numbers = subj_all_numbers[4:]
 
 source_folders = generate_source_folder_list(source_root_path, subj_prefix, subj_numbers)
 
@@ -97,7 +97,7 @@ for source_folder in source_folders:
     
         print(f"Uploaded {filename} to {hpc_folder}")
 
-# Close SFTP and SSH connection
+#%% Close SFTP and SSH connection
 sftp.close()
 ssh_client.close()
 

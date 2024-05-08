@@ -22,6 +22,7 @@ from nilearn import masking
 
 # from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 # import sklearn.svm as svm
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import confusion_matrix
 
@@ -194,6 +195,24 @@ def extract_data_roi_byatlas(d4_data, atlas_map, ROI_idx):
     return data_roi
 
 
+def unique_preserve_order(groups):
+    """
+    Function to return the unique elements of a vector in the orginal order without reordering them 
+    
+    Parameters
+    ----------
+    groups : 1-d np array containing group identity of all samples
+
+    Returns
+    -------
+    unique elements from this vector
+
+    """
+    unique_groups, index = np.unique(groups, return_index=True)
+    sorted_index = np.argsort(index)
+    return unique_groups[sorted_index]
+
+
 def del_group_misslabel(data, labels, groups, labels_complete):
     """
     Function to delete data(and corresponding labels) from group(s) that does not have the data for each label
@@ -211,8 +230,8 @@ def del_group_misslabel(data, labels, groups, labels_complete):
 
     """
     
-    groups_idx = np.unique(groups)
-    labels_bygroup = npi.group_by(groups).split(labels) # return a list of arrays
+    groups_idx = unique_preserve_order(groups)
+    labels_bygroup = [labels[groups == group] for group in groups_idx]    # return a list of arrays
     groups_bool = np.array([np.in1d(labels_complete, labels_1group).all() for labels_1group in labels_bygroup])
     
     if groups_bool.all():
@@ -230,6 +249,14 @@ def del_group_misslabel(data, labels, groups, labels_complete):
         groups_new = groups_new[samples_bool]
         
         return data_new, labels_new, groups_new
+
+def is_numerical(array):
+    try:
+        # Try converting the array to a numerical type
+        np.asarray(array, dtype=np.float64)
+        return True
+    except ValueError:
+        return False
     
 
 def from_4runs_to_8groups(labels):
@@ -246,6 +273,12 @@ def from_4runs_to_8groups(labels):
 
     """
     groups = np.zeros(labels.size, dtype=int)
+    
+    if not is_numerical(labels):
+        le = LabelEncoder()
+        le.fit(labels)
+        labels = le.transform(labels)
+        
     labels_diffs = np.concatenate(([1],np.diff(labels))) # difference between neigboring elements of the labels array
     
     group = 1 # starting value of assinging group

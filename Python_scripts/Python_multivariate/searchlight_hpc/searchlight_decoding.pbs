@@ -6,7 +6,7 @@
 #PBS -l mem=15gb
 #PBS -N searchlight_decoding
 #PBS -V
-#PBS -l walltime=45:00:00 
+#PBS -l walltime=10:00:00 
 
 module purge
 module load Nilearn/0.10.3-gfbf-2023a
@@ -17,5 +17,6 @@ cd $PBS_O_WORKDIR
 python ./task_decoding_searchlight_hpc.py $subj
 
 ### This script is submitted to the cluster with the following two commands:
-# module load worker/1.6.8-intel-2018a    ### this time we cannot include this command in the script itself because otherwise the next command will not work
+# module swap env/slurm/skitty             ### to avoid "illegal instruction" error
+# module load worker/1.6.11-intel-2019b    ### this time we cannot include this command in the script itself because otherwise the next command will not work
 # wsub -data subjs.csv -batch searchlight_decoding.pbs

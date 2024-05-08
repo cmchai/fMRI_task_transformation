@@ -61,26 +61,51 @@ atlas_idx_decode = np.arange(1, len(atlas_labels)) # all parcels
 # atlas_idx_decode = np.array([58,143,149,187,188], dtype=int)
 
 #%% define what data suffix to be decoded(should be in 4D format)
+# one of following:
+# 1. 'ALL-short_4D.nii', The short CTI trial regressors of all the block types(RG and TF)
+# 2. 'RG-all-c1_4D.nii', The first CTI regressor of long and short trials in ONLY regular blocks, need regroup in this case
+# stim dimension : ['RG-short-stim_4D.nii', 'TF-short-stim_4D.nii', 'All-short-stim_4D.nii', 'RG-all-stim-c1_4D.nii']
+# rule dimension : ['RG-short-rule_4D.nii', 'TF-short-rule_4D.nii', 'All-short-rule_4D.nii', 'RG-all-rule-c1_4D.nii']
 
-d4_files_suffix = 'RG-all-c1_4D.nii'
+d4_files_suffix = 'RG-all-rule-c1_4D.nii'
 n_d4_files = 1
-need_regroup = True  # specify if reassigning runs into folds are necessary(from 4 runs into 8 folds)
+need_regroup = True   # specify if reassigning runs into folds are necessary(from 4 runs into 8 folds)
+
+smooth = True
+compositional = True
+
+if smooth:
+    smth_suffix = '-B'
+else:
+    smth_suffix = ''
+    
+if compositional:
+    comp_suffix = '-Comp'
+else:
+    comp_suffix = ''
+
+glm_folder = 'GLM-02M' + comp_suffix + smth_suffix
 
 #%% Define all the subjects and the GLM results to run
 
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
 subjs = subjs_all.copy()
 # subjs = np.setdiff1d(subjs_all, subjs_run)
-FLM_root_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M-B/results' # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
+
+FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
 
 #%% Define tasks to be decoded
+# can be one of the following:
+# 1. np.arange(1,10), 9 conjunctive tasks
+# 2. np.array(['animal', 'place', 'vehicle']), 3 compositional tasks in the stimulus type dimension
+# 3. np.array(['age', 'location', 'size']), 3 compositional tasks in the task rule dimension
 
-full_task_labs = np.arange(1,10)
+full_task_labs = np.array(['age', 'location', 'size'])
 
 #%% Define decoders and if confusion matrix needed
 
 decoders = ['SVM']
-confusion = False
+confusion = True
 
 if confusion:
     big_confusion_mat = np.zeros((full_task_labs.size, full_task_labs.size, subjs.size, atlas_idx_decode.size, n_d4_files))    
@@ -91,7 +116,6 @@ columns = ['subject', 'decoder', 'smoothing', 'measure', 'condition', 'atlas', '
            'parcel', 'parcel_size', 'n_folds', 'mean_accuracy']
 
 results = pd.DataFrame(columns = columns)
-results_name = ''
 
 #%% Creating the np array to store the decoding results
 
@@ -120,7 +144,12 @@ for subj_idx, subj in enumerate(subjs): # loop over subjects
         labels_path = os.path.join(subj_dir, labels_file)
         labels_df = pd.read_csv(labels_path, sep=",")
 
+        # retrieve the task identities
         labels_all = labels_df['tasks'].to_numpy().copy()
+        if not funcs.is_numerical(labels_all): # if the label are not numerical(e.g.1-9), but strings('animal', 'size'...)
+            labels_all = labels_all.astype(str)        
+        
+        # retrieve the group identities
         groups = labels_df['runs'].to_numpy().copy()
         if need_regroup:
             groups = funcs.from_4runs_to_8groups(labels_all)
@@ -204,23 +233,23 @@ t_elapsed = time.time() - t_start
 
 #%% save the data frame, the numpy array, and the confusion matrix if applicable
 
-data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/atlas/Schaefer_2018/smth_8/Block_all_c1'
+data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/compos/atlas/Schaefer_2018/smth8/task_rule/RG_all_c1_rule'
 
-result_df_name = 'decodeAcc_smth8_spmT_RG_TF_all_c1_SchPar.csv'
+result_df_name = 'decodeAcc_smth8_spmT_RG_all_c1_rule_SchPar.csv'
 results.to_csv(os.path.join(data_dir, result_df_name))
 
-results_np_name = 'decodeAcc_smth8_spmT_RG_TF_all_c1_SchPar'
+results_np_name = 'decodeAcc_smth8_spmT_RG_all_c1_rule_SchPar'
 np.save(os.path.join(data_dir, results_np_name), accuracy_results)
 
 if confusion:
-    confusion_mats_name = 'conf_mat_decodeAcc_smth8_spmT_RG_all_c1_SchPar_Sig'
+    confusion_mats_name = 'conf_mat_decodeAcc_smth8_spmT_RG_all_c1_rule_SchPar'
     np.save(os.path.join(data_dir, confusion_mats_name), big_confusion_mat)
 
 #%% running one sample t test on the decoding accuracy across participants for each parcel
-
-accuracy_results = np.load(os.path.join(data_dir, 'decodeAcc_smth8_spmT_RG_TF_all_c1_SchPar.npy'))
+chance_level = 0.3333 # 0.1111 if 9 tasks, 0.3333 if 3 tasks
+accuracy_results = np.load(os.path.join(data_dir, 'decodeAcc_smthN_spmT_All_short_stim_SchPar.npy'))
 accuracies_group = np.nanmean(accuracy_results,axis=1)
-t_statistics, p_values = stats.ttest_1samp(a=accuracy_results, popmean=0.1111, axis=1, nan_policy='omit', alternative='greater')
+t_statistics, p_values = stats.ttest_1samp(a=accuracy_results, popmean=chance_level, axis=1, nan_policy='omit', alternative='greater')
 
 #%% using FDR to control for multiple comparisons(all the parcels)
 sig_level = 0.05
@@ -240,17 +269,14 @@ for parcel_list_idx, parcel_idx in enumerate(atlas_idx_decode):
     accuracies_TF_group_img_data[atlas_image_map == parcel_idx] =  accuracies_group[1,parcel_list_idx]
 
 accuracies_RG_group_img= nib.Nifti1Image(accuracies_RG_group_img_data, atlas_image.affine, atlas_image.header)
-plotting.plot_glass_brain(accuracies_RG_group_img,threshold=0.13)
-nib.save(accuracies_RG_group_img, os.path.join(data_dir, 'decodeAcc_smthN_spmT_RG_all_c1_SchPar.nii'))
+plotting.plot_glass_brain(accuracies_RG_group_img,threshold=0.40)
+nib.save(accuracies_RG_group_img, os.path.join(data_dir, 'decodeAcc_smthN_spmT_All_short_stim_SchPar.nii'))
 
 accuracies_TF_group_img= nib.Nifti1Image(accuracies_TF_group_img_data, atlas_image.affine, atlas_image.header)
 plotting.plot_glass_brain(accuracies_TF_group_img, threshold=0.13)
 nib.save(accuracies_TF_group_img, os.path.join(data_dir, 'decodeAcc_smthN_spmT_TF_all_c1_SchPar.nii'))
 
-# only significant regions
-sig_accuracies_RG_group_img_data = np.zeros(atlas_image_map.shape)
-sig_accuracies_TF_group_img_data = np.zeros(atlas_image_map.shape)
-
+# only for significant regions
 sig_parcels_RG = atlas_idx_decode[p_values_RG_fdr < sig_level] # the significant parcel indexs
 sig_parcels_TF = atlas_idx_decode[p_values_TF_fdr < sig_level]
 
@@ -260,29 +286,44 @@ sig_parcels_TF_names = atlas_labels[1:][p_values_TF_fdr < sig_level]
 sig_acc_RG = accuracies_group[0,:][p_values_RG_fdr < sig_level] # the decoding accuracy values of these significant parcels
 sig_acc_TF = accuracies_group[1,:][p_values_TF_fdr < sig_level]
 
+sig_p_RG = p_values_RG_fdr[p_values_RG_fdr < sig_level] # the corrected p value of these significant parcels
+sig_p_TF = p_values_TF_fdr[p_values_TF_fdr < sig_level]
+
 # create data frames that save the information of significant ROIs
 regular_sig_ROIs_data ={'index':sig_parcels_RG,
                       'name':sig_parcels_RG_names,
-                      'decode_acc':sig_acc_RG}
+                      'decode_acc':sig_acc_RG,
+                      'p_fdr':sig_p_RG}
 
 regular_sig_ROIs_df = pd.DataFrame(regular_sig_ROIs_data)
+regular_sig_ROIs_name = 'sigROIs_RG.csv'
+regular_sig_ROIs_df.to_csv(os.path.join(data_dir, regular_sig_ROIs_name))
+
 
 transform_sig_ROIs_data ={'index':sig_parcels_TF,
                       'name':sig_parcels_TF_names,
-                      'decode_acc':sig_acc_TF}
+                      'decode_acc':sig_acc_TF,
+                      'p_fdr':sig_p_TF}
 
 transform_sig_ROIs_df = pd.DataFrame(transform_sig_ROIs_data)
-
+transform_sig_ROIs_name = 'sigROIs_TF.csv'
+transform_sig_ROIs_df.to_csv(os.path.join(data_dir, transform_sig_ROIs_name))
 
 ## creating images that show the decoding acc for ONLY significant ROIs for regular condition
+
+sig_accuracies_RG_group_img_data = np.zeros(atlas_image_map.shape)
+
 for list_idx, parcel_idx_RG in enumerate(sig_parcels_RG):
     sig_accuracies_RG_group_img_data[atlas_image_map == parcel_idx_RG] = sig_acc_RG[list_idx] # accuracies_group[0,parcel_idx_RG-1]
     
 sig_accuracies_RG_group_img= nib.Nifti1Image(sig_accuracies_RG_group_img_data, atlas_image.affine, atlas_image.header)
 plotting.plot_glass_brain(sig_accuracies_RG_group_img)
-nib.save(sig_accuracies_RG_group_img, os.path.join(data_dir, 'decodeAcc_smthN_spmT_RG_all_c1_SchPar_Sig.nii'))
+nib.save(sig_accuracies_RG_group_img, os.path.join(data_dir, 'decodeAcc_smthN_spmT_All_short_stim_SchPar_Sig.nii'))
 
 ## creating images that show the decoding acc for ONLY significant ROIs for transform condition
+
+sig_accuracies_TF_group_img_data = np.zeros(atlas_image_map.shape)
+
 for list_idx, parcel_idx_TF in enumerate(sig_parcels_TF):
     sig_accuracies_TF_group_img_data[atlas_image_map == parcel_idx_TF] = sig_acc_TF[list_idx]
     
