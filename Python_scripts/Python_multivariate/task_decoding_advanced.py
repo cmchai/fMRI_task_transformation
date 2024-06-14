@@ -309,8 +309,7 @@ for ROI_idx, ROI in enumerate(ROIs): # loop over ROIs
     
     if plot_roi:
         plotting.plot_roi(ROI_image,black_bg=True, title = ROI)
-        # plotting.plot_glass_brain(ROI_image)
-        
+        # plotting.plot_glass_brain(ROI_image)        
     
     for subj_idx, subj in enumerate(subjs): # loop over subjects       
         bids_subj = 'sub-00' + str(subj)

@@ -195,6 +195,33 @@ def extract_data_roi_byatlas(d4_data, atlas_map, ROI_idx):
     return data_roi
 
 
+def extract_data_combined_roi_byatlas(d4_data, atlas_map, ROI_idxes):
+    """
+    Function to extract data ready for decoding from a group of certain ROIs (merged ROI) derived from an atlas
+
+    Parameters
+    ----------
+    d4_data : 4d np array, the 4th dimension are the samples
+    atlas_map : atlas image map in 3d np array, with different integers denoting different ROIs
+    ROI_idxes: np array including indexes of ROIs that you want to extract data from as a merged (combined) region of interest
+    
+    the d4_data and atlas_map should have the same dimension. if not, please resample the atlas image first
+    
+    Returns
+    -------
+    data_roi : the ROI data ready for decoding, which is a 2-d np array [samples * features within the ROI]
+    """    
+        
+    ROI_mask_array = np.isin(atlas_map, ROI_idxes) # return a boolean 3-d array
+    data_roi = np.transpose(d4_data[ROI_mask_array])
+    
+    # get rid of voxels that only contains zero values across samples
+    non_zero_columns = np.any(data_roi != 0, axis=0)
+    data_roi = data_roi[:,non_zero_columns]
+    
+    return data_roi
+
+
 def unique_preserve_order(groups):
     """
     Function to return the unique elements of a vector in the orginal order without reordering them 
@@ -262,6 +289,7 @@ def is_numerical(array):
 def from_4runs_to_8groups(labels):
     """
     the function of reassigning data from 4 runs into 8 folds for cross-validation
+    mainly used whe both short and long trials c1 regressors were modeled  
 
     Parameters
     ----------
@@ -289,4 +317,8 @@ def from_4runs_to_8groups(labels):
             group += 1
             groups[label_idx] = group
             
-    return groups 
+    return groups
+
+def split_groups(df):
+    df['new_group'] = df.groupby(['runs', 'folds'], sort = False).ngroup() # the new group starts with 0
+    return df['new_group'].to_numpy()

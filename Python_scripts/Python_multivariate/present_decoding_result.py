@@ -143,7 +143,44 @@ for scheme_idx, decoding_scheme in enumerate(decoding_schemes2):
     img_name = 'decodeAcc_' + decoding_scheme + '_SchPar_Sig.nii'
     plotting.plot_glass_brain(img, threshold=0.001, title='decoding acc for ' + decoding_scheme, vmin=0.33, vmax=0.46)
     nib.save(img, os.path.join(root_folder, 'summary', img_name))
-    
-        
 
+#%% compare p-values of un-corrected results  
+scheme_bool = np.array([has_substring(scheme, 'RG_short') for scheme in decoding_schemes])
+short_schemes = decoding_schemes2[scheme_bool]
+
+p_values_RGshort =  p_values[:,scheme_bool]
+p_values_sigs = p_values_RGshort < 0.05
+p_values_sigs_avg = np.sum(p_values_sigs, axis = 0)
+
+decoding_results_RGshort_submean = decoding_results_submean[:,scheme_bool]
+decoding_results_RGshort_submean_sig_uncor = decoding_results_RGshort_submean
+decoding_results_RGshort_submean_sig_uncor[~p_values_sigs] = 0
+
+for scheme_idx, decoding_scheme in enumerate(short_schemes):
+    decoding_acc = decoding_results_RGshort_submean_sig_uncor[:,scheme_idx]
+    
+    img_data = np.zeros(atlas_image_map.shape)
+    for parcel_list_idx, parcel_idx in enumerate(atlas_labels_idx):
+        img_data[atlas_image_map == parcel_idx] =  decoding_acc[parcel_list_idx]
+    img = nib.Nifti1Image(img_data, atlas_image.affine, atlas_image.header)
+    img_name = 'decodeAcc_' + decoding_scheme + '_SchPar_Sig_Uncor.nii'
+    plotting.plot_glass_brain(img, threshold=0.001, title='Uncorrected decoding acc for ' + decoding_scheme, vmin=0.33, vmax=0.46)
+    nib.save(img, os.path.join(root_folder, 'summary', img_name))
+
+#%% check conjunctive uncorrected result
+
+conjunc_decod_acc = np.squeeze(np.load('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/conjunc/atlas/Schaefer_2018/smth8/RG_short/decodeAcc_smth8_spmT_RG_short_SchPar.npy'))
+conjunc_decod_acc_submean = np.nanmean(conjunc_decod_acc, axis=0)
+
+t_statistics, p_values = stats.ttest_1samp(a=conjunc_decod_acc, popmean=0.1111, axis=0, nan_policy='omit', alternative='greater')
+np.sum(p_values < 0.05)
+
+conjunc_decod_acc_submean_sig = conjunc_decod_acc_submean
+conjunc_decod_acc_submean_sig[p_values >= 0.05] = 0
+
+img_data = np.zeros(atlas_image_map.shape)
+for parcel_list_idx, parcel_idx in enumerate(atlas_labels_idx):
+    img_data[atlas_image_map == parcel_idx] =  conjunc_decod_acc_submean_sig[parcel_list_idx]
+img = nib.Nifti1Image(img_data, atlas_image.affine, atlas_image.header)
+plotting.plot_glass_brain(img, threshold=0.001, title='Uncorrected decoding acc for smth8 conjunc RG-short', vmin=0.11, vmax=0.15)
 
