@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Feb 27 15:11:31 2024
+Created on Tue Jun 25 14:07:42 2024
 
-Master Script to run decoding on ROIs defined by an atlas
+Script to run decoding on a set of ROIs
+Specifically for FIR-02M model
 
 @author: mengqiao
 """
@@ -26,12 +27,12 @@ import pandas as pd
 
 from nilearn import image, plotting
 # from nilearn import masking
-# from nilearn import datasets
+from nilearn import datasets
 import nibabel as nib
 
 # from sklearn.preprocessing import StandardScaler
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import sklearn.svm as svm
+from sklearn.feature_selection import SelectKBest, f_classif
 # from sklearn.metrics import accuracy_score
 # from sklearn.metrics import confusion_matrix
 # from sklearn.model_selection import LeaveOneGroupOut
@@ -39,8 +40,7 @@ import sklearn.svm as svm
 from scipy import stats
 import statsmodels.stats.multitest as multi
 
-#%% Define Atlas of interest
-
+#%% Define the ROIs from Schaefer et al., 2018
 atlas_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas'
 atlas_subdir = 'schaefer_2018/schaefer_2018'
 atlas_name = 'Schaefer2018_400Parcels_17Networks_order_FSLMNI152_2.5mm.nii.gz'
@@ -55,52 +55,60 @@ atlas_labels = np.array(atlas_labels_df[1].tolist().copy())
 atlas_labels = np.insert(atlas_labels, 0, "Background")
 
 # define the index of the parcels that we will perform the decoding on
-# - smth8 RG_all_c1 significant parcels [58, 143, 149, 187, 188]
+ROIs_Sch = [128, 129, 130, 131, 132, 330, 331, 332, 333, 334] # 128-132 and 330-334 are DLPFC in control A network
+ROIs_Sch_comb = [np.array([128, 129, 130, 131, 132]),np.array([330, 331, 332, 333, 334])]
 
-atlas_idx_decode = np.arange(1, len(atlas_labels)) # all parcels
-# atlas_idx_decode = np.array([58,143,149,187,188], dtype=int)
+#%% Define ROIs from the short trials decoding result
+ROIs_Sch_short = [10,55,58,62,63,65,121,125,128,180,186,195,197,199,200,207,258,341]
+ROIs_Sch_short_group = [10,np.array([55,58]),np.array([62,63,65]),np.array([121,125,128]),np.array([180,186]),np.array([195,197,199,200]),207,258,341]
+
+#%% Define ROIs from AAL anatomical atlas
+ROIs_AAL_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/ROI/AAL3'
+ROIs_AAL = [file for file in os.listdir(ROIs_AAL_dir) if file.endswith('.nii')]
+
+#%% define all the ROIs
+# ROIs = ROIs_Sch + ROIs_AAL
+ROIs = ROIs_Sch_short
+
+#%% choosing whether using feature selection
+feat_select = False
+feat_num = 500
+
+#%% plotting ROIs
+
+plotting_ROIs = False
+
+if plotting_ROIs:
+    # ploting parcels from Schaefer 2018
+    for parcel_idx in ROIs_Sch_short:
+        img_data = np.zeros(atlas_image_map.shape)
+        img_data[atlas_image_map == parcel_idx] = 1
+        img = nib.Nifti1Image(img_data, atlas_image.affine, atlas_image.header)
+        plotting.plot_glass_brain(img, title='Schaefer Atlas Parcel No.' + str(parcel_idx))
+    
+    for region in ROIs_AAL:
+        img_path = os.path.join(ROIs_AAL_dir, region)
+        plotting.plot_glass_brain(img_path, title = region)
 
 #%% define what data suffix to be decoded(should be in 4D format)
-# one of following:
-# 1. 'ALL-short_4D.nii', The short CTI trial regressors of all the block types(RG and TF), 8 runs in total
-# 2. 'RG-all-c1_4D.nii' or 'TF-all-c1_4D.nii', The first CTI regressor of long and short trials in ONLY regular blocks, need regroup in this case, turning 4 runs into 8 runs
-# 3. 'RG-short_4D.nii', The short CTI trial regressors of RG blocks(4 runs in total)
-# stim dimension : ['RG-short-stim_4D.nii', 'TF-short-stim_4D.nii', 'All-short-stim_4D.nii', 'RG-all-stim-c1_4D.nii']
-# rule dimension : ['RG-short-rule_4D.nii', 'TF-short-rule_4D.nii', 'All-short-rule_4D.nii', 'RG-all-rule-c1_4D.nii']
+compositional = True 
 
-d4_files_suffix = 'TF-short-rule_4D.nii'
-n_d4_files = 1
-need_regroup = False   # specify if reassigning runs into folds are necessary(from 4 runs into 8 folds) when includeing both short and long trials
-need_splitgroup = False # specify if the GLM model split the run into 2 sub-runs to have more data feeding into decoder
-
-smooth = False
-compositional = True
-splitgroup = False
-
-if smooth:
-    smth_suffix = '-B'
-else:
-    smth_suffix = ''
-    
 if compositional:
     comp_suffix = '-Comp'
+    d4_files_midixes = ['long-stim-tr', 'long-rule-tr']
 else:
     comp_suffix = ''
+    d4_files_midixes = ['long-tr']
     
-if splitgroup:
-    split_suffix = '-4to8'
-else:
-    split_suffix = ''
+n_d4_files = len(d4_files_midixes)
+glm_folder = 'FIR-02M' + comp_suffix
+FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
 
-glm_folder = 'GLM-02M' + comp_suffix + split_suffix + smth_suffix
-
-#%% Define all the subjects and the GLM results to run
+#%% Define all the subjects to run
 
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
 subjs = subjs_all.copy()
 # subjs = np.setdiff1d(subjs_all, subjs_run)
-
-FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
 
 #%% Define tasks to be decoded
 # can be one of the following:
@@ -108,36 +116,34 @@ FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'
 # 2. np.array(['animal', 'place', 'vehicle']), 3 compositional tasks in the stimulus type dimension
 # 3. np.array(['age', 'location', 'size']), 3 compositional tasks in the task rule dimension
 
-full_task_labs = np.array(['age', 'location', 'size'])
+conjunc_labs = np.arange(1,10) # 9 conjunctive tasks
+stim_labs = np.array(['animal', 'place', 'vehicle']) # 3 compositional tasks in the stimulus type dimension
+rule_labs = np.array(['age', 'location', 'size']) # 3 compositional tasks in the task rule dimension
 
 #%% Define decoders and if confusion matrix needed
 
-decoders = ['SVM']
-confusion = False
-
-if confusion:
-    big_confusion_mat = np.zeros((full_task_labs.size, full_task_labs.size, subjs.size, atlas_idx_decode.size, n_d4_files))    
+decoder = 'SVM'
 
 #%% Creating the dataframe to store the decoding results
 
-columns = ['subject', 'decoder', 'smoothing', 'measure', 'condition', 'atlas', 'parcel_index',
-           'parcel', 'parcel_size', 'n_folds', 'mean_accuracy']
+columns = ['subject', 'decoder', 'smoothing', 'measure', 'condition', 'atlas',
+           'roi', 'roi_size', 'n_folds', 'mean_accuracy']
 
 results = pd.DataFrame(columns = columns)
 
-#%% Creating the np array to store the decoding results
-
-accuracy_results = np.zeros((n_d4_files, subjs.size, atlas_idx_decode.size)) # here assume no multiple decoders are used, otherwise need to add another dimension
-
 #%% Performing the decoding across ROIs
 t_start = time.time()
-
     
 for subj_idx, subj in enumerate(subjs): # loop over subjects
 
     bids_subj = 'sub-00' + str(subj)
     subj_dir = os.path.join(FLM_root_dir, bids_subj)
-    d4_files = funcs.search_files(subj_dir, bids_subj, d4_files_suffix) # all the relevant 4d data
+    
+    d4_files = []
+    
+    for d4_files_midix in d4_files_midixes:
+        d4_file_name = funcs.search_files_2(subj_dir, bids_subj, d4_files_midix, '_4D.nii') # which is a list
+        d4_files = d4_files + d4_file_name
     
     print(f"start decoding for {bids_subj}")
 
@@ -154,112 +160,93 @@ for subj_idx, subj in enumerate(subjs): # loop over subjects
 
         # retrieve the task identities
         labels_all = labels_df['tasks'].to_numpy().copy()
+        full_task_labs = conjunc_labs
         if not funcs.is_numerical(labels_all): # if the label are not numerical(e.g.1-9), but strings('animal', 'size'...)
-            labels_all = labels_all.astype(str)        
+            labels_all = labels_all.astype(str)
+            if 'animal' in labels_all:
+                full_task_labs = stim_labs
+            else:
+                full_task_labs = rule_labs
         
         # retrieve the group identities
         groups = labels_df['runs'].to_numpy().copy()
-        if need_regroup:
-            groups = funcs.from_4runs_to_8groups(labels_all)
+
+        for ROI_idx, ROI in enumerate(ROIs):
             
-        if need_splitgroup:
-            groups = funcs.split_groups(labels_df)
-        
-        for parcel_list_idx, parcel_idx in enumerate(atlas_idx_decode):
+            if type(ROI) == int: # if ROI belongs to Schaefer 2018 atlas
+                atlas = 'Schaefer'
+                parcel_label = atlas_labels[ROI]              
+                data_ROI = funcs.extract_data_roi_byatlas(d4_data, atlas_image_map, ROI)
+            elif type(ROI) == np.ndarray: # an array for merging ROIs
+                atlas = 'Schaefer'
+                data_ROI = funcs.extract_data_combined_roi_byatlas(d4_data, atlas_image_map, ROI)
+            else:
+                atlas = 'AAL'
+                ROI_path = os.path.join(ROIs_AAL_dir, ROI)
+                ROI_image = image.load_img(ROI_path)
+                data_ROI = funcs.extract_data_roi(d4_image, ROI_image)
             
-            parcel_label = atlas_labels[parcel_idx]              
-            data_parcel = funcs.extract_data_roi_byatlas(d4_data, atlas_image_map, parcel_idx)
+            # define classifier
+            clf = svm.SVC(kernel='linear')
+                
+            # get rid of runs that do not have all the task labels
+            data_decode, labels_decode, groups_decode = funcs.del_group_misslabel(data_ROI, labels_all, groups, full_task_labs)
+                       
+            # get rid of voxels that include nan values
+            nan_mask = np.isnan(data_decode)
+            cols_with_nan = np.any(nan_mask, axis=0)
+            data_decode = data_decode[:, ~cols_with_nan]
             
-            for decoder_idx, decoder in enumerate(decoders): # loop over different kind of decoders
+            if feat_select and data_ROI.shape[1] > feat_num: # if using feature selection and the number of features is above the pre-defined number of retained features
+                fs = SelectKBest(score_func=f_classif, k=feat_num)
+                data_decode = fs.fit_transform(data_decode, labels_decode)
+                # feat_mask = fs.get_support() # returning a boolean mask showing which feature(1 in this mask) was retained
+            
+            # if the number of runs below 3, or there is no data in this ROI, then skip the decoding since cross-validation is impossible
+            if np.unique(groups_decode).size < 3 or data_ROI.shape[1] == 0:
                 
-                if decoder == 'LDA':
-                    clf = LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto')
-                elif decoder == 'SVM':
-                    clf = svm.SVC(kernel='linear')
-                else:
-                    sys.exit('decoder not properly defined!')
-                    
-                # get rid of runs that do not have all the task labels
-                data_decode, labels_decode, groups_decode = funcs.del_group_misslabel(data_parcel, labels_all, groups, full_task_labs)
-                
-                # if the number of runs below 3, then skip the decoding since cross-validation is impossible
-                if np.unique(groups_decode).size < 3 or data_parcel.shape[1] == 0:
-                    
-                    print('problem!')
-                    results = results.append({
-                        'subject' : subj, 
-                        'decoder': decoder, 
-                        'smoothing': file_substrings[1], 
-                        'measure': file_substrings[2], 
-                        'condition': file_substrings[3],
-                        'atlas': atlas_name,
-                        'parcel_index': parcel_idx,
-                        'parcel' : parcel_label, 
-                        'parcel_size' : data_parcel.shape[1], 
-                        'n_folds': np.unique(groups_decode).size, 
-                        'mean_accuracy': float("nan")}, ignore_index=True)
-                    
-                    accuracy_results[d4_index, subj_idx, parcel_list_idx] = float("nan")
-                    
-                    continue
-                
-                # running leave-one-run out decoding
-                if confusion:
-                    accuracies, conf_mats = funcs.logo_decoding(data_decode, labels_decode, groups_decode, clf, confusion=True)
-                    
-                    # normalized the confusion matrix
-                    conf_mat_sum = np.sum(conf_mats, axis=2) # sum over folds
-                    n_test = np.sum(conf_mat_sum, axis=1) # the number of true categoris for each category
-                    conf_mat_norm = conf_mat_sum/(n_test[:, np.newaxis]) # normalized confusion matrix
-                    
-                    # append the confusion matrix
-                    big_confusion_mat[:,:,subj_idx, parcel_list_idx, d4_index] = conf_mat_norm               
-                else:
-                    accuracies = funcs.logo_decoding(data_decode, labels_decode, groups_decode, clf, confusion=False)
-                
-                acc_average = np.mean(accuracies)
-                
-                # saving the accuracy results(assume no separate decoders were used)
-                accuracy_results[d4_index, subj_idx, parcel_list_idx] = acc_average
-                
+                print('problem!')
                 results = results.append({
                     'subject' : subj, 
                     'decoder': decoder, 
                     'smoothing': file_substrings[1], 
-                    'measure': file_substrings[2],
+                    'measure': file_substrings[2], 
                     'condition': file_substrings[3],
-                    'atlas': atlas_name,
-                    'parcel_index': parcel_idx,
-                    'parcel' : parcel_label, 
-                    'parcel_size' : data_parcel.shape[1], 
-                    'n_folds': accuracies.size, 
-                    'mean_accuracy': acc_average}, ignore_index=True)
+                    'atlas': atlas,
+                    'roi': ROI,
+                    'roi_size' : data_decode.shape[1], 
+                    'n_folds': np.unique(groups_decode).size, 
+                    'mean_accuracy': float("nan")}, ignore_index=True)
+                
+                continue
+            
+            # running leave-one-run out decoding
+            accuracies = funcs.logo_decoding(data_decode, labels_decode, groups_decode, clf, confusion=False)            
+            acc_average = np.mean(accuracies)            
+            results = results.append({
+                'subject' : subj, 
+                'decoder': decoder, 
+                'smoothing': file_substrings[1], 
+                'measure': file_substrings[2], 
+                'condition': file_substrings[3],
+                'atlas': atlas,
+                'roi': ROI,
+                'roi_size' : data_decode.shape[1], 
+                'n_folds': np.unique(groups_decode).size, 
+                'mean_accuracy': acc_average}, ignore_index=True)
                 
     print(f"finish decoding for {bids_subj}")
 
 t_elapsed = time.time() - t_start
 
-#%% save intermediate results
-# accuracy_results_234 = accuracy_results.copy()
-# accuracy_results_part1 = np.concatenate((accuracy_results_234, accuracy_results), axis=1)
-
 #%% save the data frame, the numpy array, and the confusion matrix if applicable
-
-data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/compos/atlas/Schaefer_2018/smthN/task_rule/TF_short_rule'
-
-result_df_name = 'decodeAcc_smthN_spmT_TF_short_rule_SchPar.csv'
+data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/roi_short_trials'
+result_df_name = 'decodeAcc_FIR_Comp_smthN_beta_rois_selectFromShort.csv'
 results.to_csv(os.path.join(data_dir, result_df_name))
-
-results_np_name = 'decodeAcc_smthN_spmT_TF_short_rule_SchPar'
-np.save(os.path.join(data_dir, results_np_name), accuracy_results)
-
-if confusion:
-    confusion_mats_name = 'conf_mat_decodeAcc_smthN_spmT_TF_short_rule_SchPar'
-    np.save(os.path.join(data_dir, confusion_mats_name), big_confusion_mat)
 
 #%% running one sample t test on the decoding accuracy across participants for each parcel
 chance_level = 0.3333 # 0.1111 if 9 tasks, 0.3333 if 3 tasks
-accuracy_results = np.load(os.path.join(data_dir, 'decodeAcc_smthN_spmT_TF_short_rule_SchPar.npy'))
+# accuracy_results = np.load(os.path.join(data_dir, 'decodeAcc_smthN_spmT_All_short_stim_SchPar.npy'))
 accuracies_group = np.nanmean(accuracy_results,axis=1)
 t_statistics, p_values = stats.ttest_1samp(a=accuracy_results, popmean=chance_level, axis=1, nan_policy='omit', alternative='greater')
 
@@ -393,5 +380,6 @@ p_value_smthN_RG_short_conj = np.squeeze(p_values) # 40 sig parcels w/o correcti
 p_value_smth8_RG_short_conj = np.squeeze(p_values) # 28 sig parcels w/o correction
 
 np.sum(p_values < sig_level)
+
 
 

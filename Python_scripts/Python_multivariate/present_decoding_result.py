@@ -31,6 +31,14 @@ def find_files_with_prefix_and_suffix(root_folder, prefix, suffix):
                 file_paths.append(os.path.join(folder_name, filename))
     return file_paths
 
+def find_files_with_prefix_and_suffix_2(root_folder, prefix, suffix, midfix, nofix):
+    file_paths = []
+    for folder_name, _, filenames in os.walk(root_folder):
+        for filename in filenames:
+            if filename.startswith(prefix) and filename.endswith(suffix) and (midfix in filename) and (nofix not in filename):
+                file_paths.append(os.path.join(folder_name, filename))
+    return file_paths
+
 def extract_substring_between(string, substring_a, substring_b):
     start_index = string.find(substring_a)
     if start_index == -1:
@@ -61,11 +69,13 @@ atlas_labels_idx = np.arange(1,atlas_labels.shape[0]+1)
 
 #%% import all the decoding results
 
-root_folder = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/compos/atlas/Schaefer_2018"
-prefix = "decodeAcc"
+root_folder = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding"
+prefix = "decodeAcc_smthN"
 suffix = "SchPar.npy"
+midfix = "short"
+nofix = "4to8"
 
-matching_files = find_files_with_prefix_and_suffix(root_folder, prefix, suffix)
+matching_files = find_files_with_prefix_and_suffix_2(root_folder, prefix, suffix, midfix, nofix)
 
 decoding_results = np.zeros((43, 400, len(matching_files)))
 decoding_schemes = []
@@ -82,10 +92,25 @@ for file_ind, file_path in enumerate(matching_files):
     
 decoding_schemes2 = np.array(decoding_schemes, dtype=np.str_)
 
+comp_decoding_schemes2 = np.array([("stim" in decoding_scheme) or ("rule" in decoding_scheme) for decoding_scheme in decoding_schemes], dtype=bool)
+
 #%% running one sample t test on the decoding accuracy across participants for each parcel
 
-chance_level = 0.3333 # 0.1111 if 9 tasks, 0.3333 if 3 tasks
-t_statistics, p_values = stats.ttest_1samp(a=decoding_results, popmean=chance_level, axis=0, nan_policy='omit', alternative='greater')
+p_values = np.zeros((400, decoding_schemes2.shape[0]))
+
+for scheme_ind, scheme in enumerate(decoding_schemes2):
+    
+    decoding_result = np.squeeze(decoding_results[:,:,scheme_ind])
+    
+    if comp_decoding_schemes2[scheme_ind]:
+        chance_level = 0.3333
+    else:
+        chance_level = 0.1111
+        
+    t_statistic, p_value = stats.ttest_1samp(a=decoding_result, popmean=chance_level, axis=0, nan_policy='omit', alternative='greater')
+    p_values[:,scheme_ind] = p_value.copy()
+
+p_values_sigs = p_values < sig_level
 
 #%% adjusting p value using FDR
 sig_level = 0.05
@@ -93,9 +118,37 @@ p_values_fdr = np.zeros(p_values.shape)
 
 for idx in range(p_values.shape[1]):
     p_fdr = multi.fdrcorrection(p_values[:,idx])[1]
-    p_values_fdr[:,idx] = p_fdr
+    p_values_fdr[:,idx] = p_fdr.copy()
 
 p_values_fdr_sigs = p_values_fdr < sig_level
+
+#%% See which ROIs consistently show significant results
+
+# results from 8-fold decoding
+fold8_decoding_schemes2 = np.array([("ll_" in decoding_scheme) for decoding_scheme in decoding_schemes], dtype=bool)
+
+fold8_decoding_all_sig_rois = np.sum(p_values_fdr_sigs[:,fold8_decoding_schemes2], axis=1) >= 3
+fold8_decoding_all_sig_roi_idx = atlas_labels_idx[fold8_decoding_all_sig_rois]
+fold8_decoding_all_sig_roi_labels = atlas_labels[fold8_decoding_all_sig_rois]
+
+img_data = np.zeros(atlas_image_map.shape)
+for parcel_list_idx, parcel_idx in enumerate(atlas_labels_idx):
+    img_data[atlas_image_map == parcel_idx] =  fold8_decoding_all_sig_rois[parcel_list_idx]
+img = nib.Nifti1Image(img_data, atlas_image.affine, atlas_image.header)
+img_name = 'Sig_rois_8fold_SchPar.nii'
+plotting.plot_glass_brain(img, threshold=0.001, title='sig ROIs for 8 fold decoding')
+
+# results from 4-fold decoding (un-corrected result)
+fold4_decoding_all_sig_rois = np.sum(p_values_sigs[:,~fold8_decoding_schemes2], axis=1) >= 4
+fold4_decoding_all_sig_roi_idx = atlas_labels_idx[fold4_decoding_all_sig_rois]
+fold4_decoding_all_sig_roi_labels = atlas_labels[fold4_decoding_all_sig_rois]
+
+img_data2 = np.zeros(atlas_image_map.shape)
+for parcel_list_idx, parcel_idx in enumerate(atlas_labels_idx):
+    img_data2[atlas_image_map == parcel_idx] =  fold4_decoding_all_sig_rois[parcel_list_idx]
+img2 = nib.Nifti1Image(img_data2, atlas_image.affine, atlas_image.header)
+img_name2 = 'Sig_rois_4fold_SchPar.nii'
+plotting.plot_glass_brain(img2, threshold=0.001, title='Un-corrected sig ROIs for 4 fold decoding')
 
 #%% compare decoding accuracy of different decoding schemes
 

@@ -412,4 +412,22 @@ plotting.plot_surf_roi(fsaverage['infl_right'], roi_map=brain_atlas_sch_surface,
 
 data111 = pd.read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/schaefer_2018/schaefer_2018/Schaefer2018_400Parcels_17Networks_order.txt', delimiter = "\t", header = None)
 
+#%% resampling the Glasser atlas
+
+# the image that to be resampled
+atlas_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/fmri-extract-HCP-mask-main'   
+atlas_name = 'HCP-MMP1_on_MNI152_ICBM2009a_nlin.nii'
+atlas_dir = os.path.join(atlas_root_dir, atlas_name)
+
+atlas_img_before = image.load_img(atlas_dir)
+
+# the new size that should be resampled into
+image4d_example_path = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results/sub-003/sub-003_smthN_spmT_ALL-short_4D.nii'
+image4d_example = image.load_img(image4d_example_path)
+
+# resample the image and save the new atalas
+atlas_img_after = image.resample_to_img(atlas_img_before, image4d_example, interpolation='nearest')
+atlas_img_after_name = 'HCP-MMP1_on_MNI152_ICBM2009a_nlin_resamp_2.5mm.nii'
+atlas_img_after_path = os.path.join(atlas_root_dir, atlas_img_after_name)
+nib.nifti1.save(atlas_img_after, atlas_img_after_path)
 

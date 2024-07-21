@@ -56,6 +56,33 @@ def search_files(folder_path, start_substring, end_substring):
     
     return file_names
 
+def search_files_2(folder_path, start_substring, mid_substring, end_substring):
+    """
+    Function to return files' names that start, mid, and end with particular substrings
+    Parameters
+    ----------
+    folder_path : the full path of the folder of interest
+    start_substring : the particular substring the file name should start with
+    mid_substring: the particular substring the file name should include in the middle
+    end_substring : the particular substring the file name should end with.
+
+    Returns
+    -------
+    file_names : return a list of ONLY the names of all the relevant files
+    """
+    
+    # Construct the pattern for file names
+    pattern = os.path.join(folder_path, f"{start_substring}*{mid_substring}*{end_substring}")
+    
+    # Use glob to find files matching the pattern
+    matching_files = glob.glob(pattern)
+    
+    # Extract file names from file paths
+    file_names = [os.path.basename(file) for file in matching_files]
+    file_names.sort() # sorting the list in ascending order based on the letter
+    
+    return file_names
+
 
 def decoding(train_set, test_set, train_labels, test_labels, clf, n_labels, confusion=False):
     """
@@ -142,6 +169,63 @@ def logo_decoding(data_all, labels_all, groups, clf, confusion=False):
     else:
         return accuracies
     
+
+def logo_cross_decoding(data_1, labels_1, groups_1, data_2, labels_2, groups_2, clf, one_side = False):
+    """
+    Function to run Leave-One-Group-Out(logo) cross-validation Cross-Decoding
+    Cross decoding is conducted both ways, meaning decoder trained in data_1 will be tested on data_2,
+    and decoder trained in data_2 will be tested on data_1, yielding 2 vectors of accuracies
+    ----------
+    Parameters
+    ----------
+    data_1 and data_2: all the data, which is a 2-d np array [samples * features]
+    labels_1 and labels_2: The correct labels of the data, which is a 1-d np array 
+    groups_1 and groups_2: the group labels of all the samples, which is a 1-d np array 
+    clf : the decoder object
+    
+    Returns
+    -------
+    The decoding accuracies of all the testing folds in both cross decoding schemes, which is a 2-d np array
+    accuracies[0]: decoder trained using data_1 and tested on data_2
+    accuracies[1]: decoder trained using data_2 and tested on data_1
+
+    """
+    # function to perform leave-one-group-out(logo) decoding
+    logo = LeaveOneGroupOut()
+    folds = logo.split(data_1, labels_1, groups=groups_1)
+    n_groups = np.unique(groups_1).shape[0]
+    n_labels = np.unique(labels_1).shape[0]
+    
+    accuracies = np.zeros((2, n_groups))
+
+    for idx, fold in enumerate(folds):
+        train_idx, test_idx = fold
+        # print(train_idx, test_idx)
+        
+        # defining training data and labels
+        data_train_1 = data_1[train_idx]
+        labels_train_1 = labels_1[train_idx]
+        
+        data_train_2 = data_2[train_idx]
+        labels_train_2 = labels_2[train_idx]
+        
+        # defining testing data and labels
+        data_test_1 = data_1[test_idx]
+        labels_test_1 = labels_1[test_idx]
+        
+        data_test_2 = data_2[test_idx]
+        labels_test_2 = labels_2[test_idx]
+        # print(S_test)
+        
+        accuracy_cross_1 = decoding(data_train_1, data_test_2, labels_train_1, labels_test_2, clf, n_labels, confusion=False)
+        accuracies[0,idx] = accuracy_cross_1
+        
+        if not one_side:
+            accuracy_cross_2 = decoding(data_train_2, data_test_1, labels_train_2, labels_test_1, clf, n_labels, confusion=False)
+            accuracies[1,idx] = accuracy_cross_2
+            
+    return accuracies
+
 
 def extract_data_roi(d4_image, roi_image):
     """
@@ -240,7 +324,7 @@ def unique_preserve_order(groups):
     return unique_groups[sorted_index]
 
 
-def del_group_misslabel(data, labels, groups, labels_complete):
+def del_group_misslabel(data, labels, groups, labels_complete, return_sample_bool = False):
     """
     Function to delete data(and corresponding labels) from group(s) that does not have the data for each label
 
@@ -261,8 +345,12 @@ def del_group_misslabel(data, labels, groups, labels_complete):
     labels_bygroup = [labels[groups == group] for group in groups_idx]    # return a list of arrays
     groups_bool = np.array([np.in1d(labels_complete, labels_1group).all() for labels_1group in labels_bygroup])
     
-    if groups_bool.all():
-        return data, labels, groups
+    if groups_bool.all(): 
+        if return_sample_bool:
+            samples_bool = np.ones(labels.shape, dtype=bool)
+            return data, labels, groups, samples_bool
+        else:
+            return data, labels, groups
     else:
         groups_include = groups_idx[groups_bool]
         samples_bool = np.in1d(groups, groups_include) # boolean array of which samples to include for decoding
@@ -275,7 +363,51 @@ def del_group_misslabel(data, labels, groups, labels_complete):
         labels_new = labels_new[samples_bool]
         groups_new = groups_new[samples_bool]
         
-        return data_new, labels_new, groups_new
+        if return_sample_bool:
+            return data_new, labels_new, groups_new, samples_bool
+        else:
+            return data_new, labels_new, groups_new
+    
+
+def balance_cross_decoding_data(data_1, labels_1, groups_1, data_2, labels_2, groups_2, labels_complete):
+    '''
+    function to select sample amount of data(and corresponding labels and groups) before cross-decoding
+
+    Parameters
+    ----------
+    data : 2-d np array [samples * features]
+    labels : 1-d np array containing the labels of all samples
+    groups : 1-d np array containing group identity of all samples
+    labels_complete : 1-d np array of complete label set
+
+    Returns
+    -------
+    data, labels, and groups after balancing
+
+    '''
+    
+    data_new_1, labels_new_1, groups_new_1, samples_bool_1 = del_group_misslabel(data_1, labels_1, groups_1, labels_complete, return_sample_bool = True)
+    data_new_2, labels_new_2, groups_new_2, samples_bool_2 = del_group_misslabel(data_2, labels_2, groups_2, labels_complete, return_sample_bool = True)
+    
+    if data_new_1.shape[0] == data_new_2.shape[0]: # if both 1st and 2nd data have equal amount of runs
+        return data_new_1, labels_new_1, groups_new_1, data_new_2, labels_new_2, groups_new_2
+    elif data_new_1.shape[0] > data_new_2.shape[0]: # if the 2nd data has less data
+        unique_groups_1 = np.unique(groups_new_1)
+        unique_groups_1_new = np.delete(unique_groups_1, np.random.choice(len(unique_groups_1))) # randomly select one group and delete this group to match the number of runs in 2nd data
+        samples_bool_1_new = np.in1d(groups_new_1, unique_groups_1_new) # boolean array of which samples to include for decoding
+        data_new_1 = data_new_1[samples_bool_1_new,:]
+        labels_new_1 = labels_new_1[samples_bool_1_new]
+        groups_new_1 = groups_new_1[samples_bool_1_new]
+        return  data_new_1, labels_new_1, groups_new_1, data_new_2, labels_new_2, groups_new_2
+    else: # if the 1st data has less data
+        unique_groups_2 = np.unique(groups_new_2)
+        unique_groups_2_new = np.delete(unique_groups_2, np.random.choice(len(unique_groups_2))) # randomly select one group and delete this group to match the number of runs in 2nd data
+        samples_bool_2_new = np.in1d(groups_new_2, unique_groups_2_new) # boolean array of which samples to include for decoding
+        data_new_2 = data_new_2[samples_bool_2_new,:]
+        labels_new_2 = labels_new_2[samples_bool_2_new]
+        groups_new_2 = groups_new_2[samples_bool_2_new]
+        return  data_new_1, labels_new_1, groups_new_1, data_new_2, labels_new_2, groups_new_2        
+
 
 def is_numerical(array):
     try:

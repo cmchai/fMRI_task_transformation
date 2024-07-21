@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jun 11 14:07:42 2024
+Created on Tue Jul  9 11:33:03 2024
 
-Script to run decoding on a set of ROIs
+Script to run Cross-decoding(!!!!!) on a set of ROIs
 
 @author: mengqiao
 """
@@ -128,23 +128,25 @@ nib.nifti1.save(img, '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Tas
 
 
 #%% define what data suffix to be decoded(should be in 4D format)
-compositional = True 
+compositional = False
 
 if compositional:
     comp_suffix = '-Comp'
-    d4_files_suffixes = ['RG-long-stim-c1_4D.nii', 'RG-long-stim-c2_4D.nii', 'TF-long-stim-c1_4D.nii', 'TF-long-stim-c2_4D.nii', 'RG-long-rule-c1_4D.nii', 'RG-long-rule-c2_4D.nii', 'TF-long-rule-c1_4D.nii', 'TF-long-rule-c2_4D.nii']
+    d4_files_suffixes_1 = []
+    d4_files_suffixes_2 = []
 else:
     comp_suffix = ''
-    d4_files_suffixes = ['RG-long-c1_4D.nii', 'RG-long-c2_4D.nii', 'TF-long-c1_4D.nii', 'TF-long-c2_4D.nii']
+    d4_files_suffixes_1 = ['RG-short_4D.nii', 'RG-short_4D.nii', 'TF-short_4D.nii','TF-short_4D.nii'] # training
+    d4_files_suffixes_2 = ['RG-long-c1_4D.nii', 'RG-long-c2_4D.nii', 'TF-long-c1_4D.nii', 'TF-long-c2_4D.nii'] # testing
     
-n_d4_files = len(d4_files_suffixes)
+n_d4_files = len(d4_files_suffixes_1)
 glm_folder = 'GLM-02M' + comp_suffix
 FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
 
 #%% Define all the subjects to run
 
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
-subjs = subjs_all.copy()
+subjs = subjs_all[3:43]
 # subjs = np.setdiff1d(subjs_all, subjs_run)
 
 #%% Define tasks to be decoded
@@ -157,13 +159,14 @@ conjunc_labs = np.arange(1,10) # 9 conjunctive tasks
 stim_labs = np.array(['animal', 'place', 'vehicle']) # 3 compositional tasks in the stimulus type dimension
 rule_labs = np.array(['age', 'location', 'size'])    # 3 compositional tasks in the task rule dimension
 
-#%% Define decoders and if confusion matrix needed
-
+#%% Define decoders and if the cross decoding is one sided(only train on data 1 and test on data 2 and not vice versa)
 decoder = 'SVM'
+
+oneSide = True
 
 #%% Creating the dataframe to store the decoding results
 
-columns = ['subject', 'decoder', 'smoothing', 'measure', 'condition', 'atlas',
+columns = ['subject', 'decoder', 'smoothing', 'measure', 'training', 'testing', 'atlas',
            'roi', 'roi_size', 'n_folds', 'mean_accuracy']
 
 results = pd.DataFrame(columns = columns)
@@ -176,104 +179,163 @@ for subj_idx, subj in enumerate(subjs): # loop over subjects
     bids_subj = 'sub-00' + str(subj)
     subj_dir = os.path.join(FLM_root_dir, bids_subj)
     
-    d4_files = []
+    d4_files_1 = []
+    d4_files_2 = []
     
-    for d4_files_suffix in d4_files_suffixes:
-        d4_file_name = funcs.search_files(subj_dir, bids_subj, d4_files_suffix) # which is a list
-        d4_files = d4_files + d4_file_name
+    for i in range(len(d4_files_suffixes_1)): # loop over each pair of cross-decoding
+        
+        d4_files_suffix_1 = d4_files_suffixes_1[i]
+        d4_files_suffix_2 = d4_files_suffixes_2[i]
+        
+        d4_file_name_1 = funcs.search_files(subj_dir, bids_subj, d4_files_suffix_1) # which is a list
+        d4_files_1 = d4_files_1 + d4_file_name_1
+        
+        d4_file_name_2 = funcs.search_files(subj_dir, bids_subj, d4_files_suffix_2) # which is a list
+        d4_files_2 = d4_files_2 + d4_file_name_2
     
-    print(f"start decoding for {bids_subj}")
+    print(f"start cross-decoding for {bids_subj}")
 
-    for d4_index, d4_file in enumerate(d4_files): # loop over different kind of 4d data
-        file_substrings = d4_file.split('_')      # a list of substrings indicating all the information regarding the data
+    for ii in range(len(d4_files_1)): # loop over different kind of 4d data
         
-        d4_path = os.path.join(subj_dir, d4_file)
-        d4_image = image.load_img(d4_path)
-        d4_data = d4_image.get_fdata()
+        d4_file_1 = d4_files_1[ii]
+        d4_file_2 = d4_files_2[ii]
         
-        labels_file = d4_file.replace('4D.nii', 'labels.txt')
-        labels_path = os.path.join(subj_dir, labels_file)
-        labels_df = pd.read_csv(labels_path, sep=",")
+        file_substrings_1 = d4_file_1.split('_')      # a list of substrings indicating all the information regarding the data
+        file_substrings_2 = d4_file_2.split('_')      # a list of substrings indicating all the information regarding the data
+        
+        d4_path_1 = os.path.join(subj_dir, d4_file_1)
+        d4_image_1 = image.load_img(d4_path_1)
+        d4_data_1 = d4_image_1.get_fdata()
+        
+        d4_path_2 = os.path.join(subj_dir, d4_file_2)
+        d4_image_2 = image.load_img(d4_path_2)
+        d4_data_2 = d4_image_2.get_fdata()       
+        
+        labels_file_1 = d4_file_1.replace('4D.nii', 'labels.txt')
+        labels_path_1 = os.path.join(subj_dir, labels_file_1)
+        labels_df_1 = pd.read_csv(labels_path_1, sep=",")
+        
+        labels_file_2 = d4_file_2.replace('4D.nii', 'labels.txt')
+        labels_path_2 = os.path.join(subj_dir, labels_file_2)
+        labels_df_2 = pd.read_csv(labels_path_2, sep=",")
 
         # retrieve the task identities
-        labels_all = labels_df['tasks'].to_numpy().copy()
+        labels_all_1 = labels_df_1['tasks'].to_numpy().copy()
+        labels_all_2 = labels_df_2['tasks'].to_numpy().copy()
+        
         full_task_labs = conjunc_labs
-        if not funcs.is_numerical(labels_all): # if the label are not numerical(e.g.1-9), but strings('animal', 'size'...)
-            labels_all = labels_all.astype(str)
-            if 'animal' in labels_all:
+        if not funcs.is_numerical(labels_all_1): # if the label are not numerical(e.g.1-9), but strings('animal', 'size'...)
+            labels_all_1 = labels_all_1.astype(str)
+            labels_all_2 = labels_all_2.astype(str)
+            if 'animal' in labels_all_1:
                 full_task_labs = stim_labs
             else:
                 full_task_labs = rule_labs
         
         # retrieve the group identities
-        groups = labels_df['runs'].to_numpy().copy()
+        groups_1 = labels_df_1['runs'].to_numpy().copy()
+        groups_2 = labels_df_2['runs'].to_numpy().copy()
 
         for ROI_idx, ROI in enumerate(ROIs):
             
             if type(ROI) == int: # if ROI belongs to Schaefer 2018 atlas
                 atlas = 'Schaefer'
                 parcel_label = atlas_labels[ROI]              
-                data_ROI = funcs.extract_data_roi_byatlas(d4_data, atlas_image_map, ROI)
+                data_ROI_1 = funcs.extract_data_roi_byatlas(d4_data_1, atlas_image_map, ROI)
+                data_ROI_2 = funcs.extract_data_roi_byatlas(d4_data_2, atlas_image_map, ROI)
             elif type(ROI) == np.ndarray: # an array for merging ROIs
                 atlas = 'Schaefer'
-                data_ROI = funcs.extract_data_combined_roi_byatlas(d4_data, atlas_image_map, ROI)
+                data_ROI_1 = funcs.extract_data_combined_roi_byatlas(d4_data_1, atlas_image_map, ROI)
+                data_ROI_2 = funcs.extract_data_combined_roi_byatlas(d4_data_2, atlas_image_map, ROI)
             else: # string data
                 atlas = ROI_scheme
                 ROI_image = ROIs_imgs[ROI_idx]
-                data_ROI = funcs.extract_data_roi(d4_image, ROI_image)
+                data_ROI_1 = funcs.extract_data_roi(d4_image_1, ROI_image)
+                data_ROI_2 = funcs.extract_data_roi(d4_image_2, ROI_image)
             
             # define classifier
             clf = svm.SVC(kernel='linear')
                 
             # get rid of runs that do not have all the task labels
-            data_decode, labels_decode, groups_decode = funcs.del_group_misslabel(data_ROI, labels_all, groups, full_task_labs)
+            data_decode_1, labels_decode_1, groups_decode_1, data_decode_2, labels_decode_2, groups_decode_2 = funcs.balance_cross_decoding_data(data_ROI_1, labels_all_1, groups_1, data_ROI_2, labels_all_2, groups_2, full_task_labs)
             
-            if feat_select and data_ROI.shape[1] > feat_num: # if using feature selection and the number of features is above the pre-defined number of retained features
+            if feat_select and min(data_ROI_1.shape[1], data_ROI_2.shape[1]) > feat_num: # if using feature selection and the number of features is above the pre-defined number of retained features
                 fs = SelectKBest(score_func=f_classif, k=feat_num)
-                data_decode = fs.fit_transform(data_decode, labels_decode)
+                data_decode_1 = fs.fit_transform(data_decode_1, labels_decode_1)
+                data_decode_2 = fs.fit_transform(data_decode_2, labels_decode_2)
                 # feat_mask = fs.get_support() # returning a boolean mask showing which feature(1 in this mask) was retained
             
             # if the number of runs below 3, or there is no data in this ROI, then skip the decoding since cross-validation is impossible
-            if np.unique(groups_decode).size < 3 or data_ROI.shape[1] == 0:
+            if np.unique(groups_decode_1).size < 3 or np.unique(groups_decode_2).size < 3 or data_ROI_1.shape[1] == 0 or data_ROI_2.shape[1] == 0:
                 
                 print('problem!')
                 results = results.append({
                     'subject' : subj, 
                     'decoder': decoder, 
-                    'smoothing': file_substrings[1], 
-                    'measure': file_substrings[2], 
-                    'condition': file_substrings[3],
+                    'smoothing': file_substrings_1[1], 
+                    'measure': file_substrings_1[2], 
+                    'training': file_substrings_1[3],
+                    'testing': file_substrings_2[3],
                     'atlas': atlas,
                     'roi': ROI,
-                    'roi_size' : data_decode.shape[1], 
-                    'n_folds': np.unique(groups_decode).size, 
+                    'roi_size' : data_decode_1.shape[1], 
+                    'n_folds': np.unique(groups_decode_1).size, 
                     'mean_accuracy': float("nan")}, ignore_index=True)
+                
+                if not oneSide:
+                    results = results.append({
+                        'subject' : subj, 
+                        'decoder': decoder, 
+                        'smoothing': file_substrings_1[1], 
+                        'measure': file_substrings_1[2], 
+                        'training': file_substrings_2[3],
+                        'testing': file_substrings_1[3],
+                        'atlas': atlas,
+                        'roi': ROI,
+                        'roi_size' : data_decode_1.shape[1], 
+                        'n_folds': np.unique(groups_decode_1).size, 
+                        'mean_accuracy': float("nan")}, ignore_index=True)
                 
                 continue
             
-            # running leave-one-run out decoding
-            accuracies = funcs.logo_decoding(data_decode, labels_decode, groups_decode, clf, confusion=False)            
-            acc_average = np.mean(accuracies)            
+            # running leave-one-run out cross-decoding
+            accuracies = funcs.logo_cross_decoding(data_decode_1, labels_decode_1, groups_decode_1, data_decode_2, labels_decode_2, groups_decode_2, clf, one_side = oneSide)            
+            acc_average = np.mean(accuracies, axis=1)            
             results = results.append({
                 'subject' : subj, 
                 'decoder': decoder, 
-                'smoothing': file_substrings[1], 
-                'measure': file_substrings[2], 
-                'condition': file_substrings[3],
+                'smoothing': file_substrings_1[1], 
+                'measure': file_substrings_1[2], 
+                'training': file_substrings_1[3],
+                'testing': file_substrings_2[3],
                 'atlas': atlas,
                 'roi': ROI,
-                'roi_size' : data_decode.shape[1], 
-                'n_folds': np.unique(groups_decode).size, 
-                'mean_accuracy': acc_average}, ignore_index=True)
+                'roi_size' : data_decode_1.shape[1], 
+                'n_folds': np.unique(groups_decode_1).size, 
+                'mean_accuracy': acc_average[0]}, ignore_index=True)
+            
+            if not oneSide:
+                results = results.append({
+                    'subject' : subj, 
+                    'decoder': decoder, 
+                    'smoothing': file_substrings_1[1], 
+                    'measure': file_substrings_1[2], 
+                    'training': file_substrings_2[3],
+                    'testing': file_substrings_1[3],
+                    'atlas': atlas,
+                    'roi': ROI,
+                    'roi_size' : data_decode_1.shape[1], 
+                    'n_folds': np.unique(groups_decode_1).size, 
+                    'mean_accuracy': acc_average[1]}, ignore_index=True)
                 
-    print(f"finish decoding for {bids_subj}")
+    print(f"finish cross-decoding for {bids_subj}")
 
 t_elapsed = time.time() - t_start
 
 #%% save the data frame, the numpy array, and the confusion matrix if applicable
 
-data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/independent_roi'
-result_df_name = 'decodeAcc_smthN_spmT_rois_contAB_defB.csv'
+data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/independent_roi/conA_conB_defB/cross_decode'
+result_df_name = 'cross_cti_decodeAcc_smthN_spmT_rois_FPN_Schaefer.csv'
 results.to_csv(os.path.join(data_dir, result_df_name))
 
 #%% running one sample t test on the decoding accuracy across participants for each parcel
@@ -412,7 +474,6 @@ p_value_smthN_RG_short_conj = np.squeeze(p_values) # 40 sig parcels w/o correcti
 p_value_smth8_RG_short_conj = np.squeeze(p_values) # 28 sig parcels w/o correction
 
 np.sum(p_values < sig_level)
-
 
 #%% plotting
 
