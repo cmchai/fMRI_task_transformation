@@ -28,12 +28,13 @@ from nilearn import image, plotting
 import nibabel as nib
 
 from sklearn.metrics import pairwise_distances
+from sklearn.linear_model import LinearRegression
 from scipy import stats
 
 #%% import 4d-data and labels, groups files
 
-sub_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results/sub-002'
-d4_name = 'sub-002_smthN_spmT_RG-long-c1_4D.nii'
+sub_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results/sub-005'
+d4_name = 'sub-005_smthN_spmT_RG-long-c1_4D.nii'
 d4_path = os.path.join(sub_dir, d4_name)
 big_4D = image.load_img(d4_path)
 
@@ -134,19 +135,69 @@ def  same_rule(tasks):
 
 same_rule_vec = np.vectorize(same_rule)
 
-
 # Apply the function to the string array
-conjunc_model_rdm = same_conjunc_vec(mat_1)
-stim_model_rdm = same_stim_vec(mat_1) - conjunc_model_rdm
-rule_model_rdm = same_rule_vec(mat_1)
+conjunc_model_rdm = 1 * (~ same_conjunc_vec(mat_1))
+stim_model_rdm = 1 * (~ same_stim_vec(mat_1))
+rule_model_rdm = 1 * (~ same_rule_vec(mat_1))
 
 plt.imshow(conjunc_model_rdm, cmap='viridis', interpolation='none')
 plt.imshow(stim_model_rdm, cmap='viridis', interpolation='none')
 plt.imshow(rule_model_rdm, cmap='viridis', interpolation='none')
 
-#%% take uptriangular part of a matrix
+# create block model RDM (patterns within a block is more similar to patterns between blocks)
+block_model_rdm = np.zeros(rdm.shape, dtype=int)
 
-up_bool = np.triu(bool_array, k=1)
+for index, value in np.ndenumerate(block_model_rdm):
+    block_model_rdm[index] = (index[0]//9) != (index[1]//9)
+
+plt.imshow(block_model_rdm, cmap='viridis', interpolation='none')    
+
+#%% take uptriangular part of neural and model RDMs
+
+up_bool = np.triu(rdm, k=0)
 plt.imshow(up_bool, cmap='viridis', interpolation='none')
+
+triu_idx = np.triu_indices(rdm.shape[0], k=1)
+n_triu_elements = 36*35/2 # without diagonal
+
+rdm_triu = rdm[triu_idx] # may have nan value btw.
+conjunc_model_triu = conjunc_model_rdm[triu_idx]
+stim_model_triu = stim_model_rdm[triu_idx]
+rule_model_triu = rule_model_rdm[triu_idx]
+block_model_triu = block_model_rdm[triu_idx]
+
+#%% Using linear regression to regress the neural RDM on model RDMs
+
+# define the dependent and independent variables
+X = np.stack([conjunc_model_triu, stim_model_triu, rule_model_triu, block_model_triu], axis=1)
+y = rdm_triu
+
+# get rid of nan values
+y_notnan_bool = ~np.isnan(y)
+X_excl_nan = X[y_notnan_bool, :]
+y_excl_nan = y[y_notnan_bool]
+
+# standardize both X and y (z score)
+X_z = stats.zscore(X_excl_nan, axis=0)
+y_z = stats.zscore(y_excl_nan, axis=0)
+
+# check collinearity between model predictors and y
+y_X_excl_nan = np.concatenate((y_excl_nan.reshape((630, 1)), X_excl_nan), axis=1)
+y_X_z = np.concatenate((y_z.reshape((630, 1)), X_z), axis=1)
+colin = np.corrcoef(np.transpose(y_X_excl_nan))
+
+# pre-whiten the data (regress out the block )
+pre_wh_reg = LinearRegression(fit_intercept=False, positive=False).fit(block_model_triu.reshape((630, 1)), y_excl_nan)
+prediction = pre_wh_reg.predict(block_model_triu.reshape((630, 1)))
+residual = y_excl_nan - prediction
+
+# define and fit the model
+reg = LinearRegression(fit_intercept=False, positive=False).fit(X_excl_nan, y_excl_nan) # without pre-whitening
+reg = LinearRegression(fit_intercept=False, positive=False).fit(X_excl_nan[:,:-1], residual) # with pre-whitening
+
+# check coefficients and intercept
+reg.coef_
+reg.intercept_
+print(reg.summary())
 
 
