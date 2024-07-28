@@ -54,9 +54,12 @@ atlas_labels_df = pd.read_csv(atlas_labels_path, delimiter = "\t", header = None
 atlas_labels = np.array(atlas_labels_df[1].tolist().copy())
 atlas_labels = np.insert(atlas_labels, 0, "Background")
 
-# define the index of the parcels that we will perform the decoding on
-ROIs_Sch = [128, 129, 130, 131, 132, 330, 331, 332, 333, 334] # 128-132 and 330-334 are DLPFC in control A network
-ROIs_Sch_comb = [np.array([128, 129, 130, 131, 132]),np.array([330, 331, 332, 333, 334])]
+#%% select ROIs from specific networks from this atlas
+atlas_labels_df_contAB = atlas_labels_df[atlas_labels_df[1].str.contains("ContA") | atlas_labels_df[1].str.contains("ContB")]
+ROIs_contAB = atlas_labels_df_contAB[0].tolist()
+
+atlas_labels_df_defB_PFCv = atlas_labels_df[atlas_labels_df[1].str.contains("DefaultB_PFCv")]
+ROIs_defB_PFCv = atlas_labels_df_defB_PFCv[0].tolist()
 
 #%% Define ROIs from the short trials decoding result
 ROIs_Sch_short = [10,55,58,62,63,65,121,125,128,180,186,195,197,199,200,207,258,341]
@@ -66,9 +69,20 @@ ROIs_Sch_short_group = [10,np.array([55,58]),np.array([62,63,65]),np.array([121,
 ROIs_AAL_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/ROI/AAL3'
 ROIs_AAL = [file for file in os.listdir(ROIs_AAL_dir) if file.endswith('.nii')]
 
+#%% define ROIs from FPN using the Glasser atlas (Assem et al., 2020)
+ROIs_FPN_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/ROI/HCP-MMP1_resamp'
+ROIs_FPN = [file for file in os.listdir(ROIs_FPN_dir) if file.endswith('.nii')]
+ROIs_FPN_paths = [os.path.join(ROIs_FPN_dir, ROI_FPN) for ROI_FPN in ROIs_FPN]
+ROIs_FPN_imgs = [image.load_img(ROI_FPN_path) for ROI_FPN_path in ROIs_FPN_paths]
+
+# visualize the masking image
+plotting.plot_glass_brain(ROIs_FPN_imgs[3], title='Glasser Parcel:' + ROIs_FPN[3])
+
 #%% define all the ROIs
-# ROIs = ROIs_Sch + ROIs_AAL
-ROIs = ROIs_Sch_short
+
+ROIs = ROIs_FPN
+ROI_scheme = "Glasser_fpn"   # "Schaefer", "Glasser_fpn" and etc.
+ROIs_imgs = ROIs_FPN_imgs # only application when the schaefer atalas is not used
 
 #%% choosing whether using feature selection
 feat_select = False
@@ -91,23 +105,22 @@ if plotting_ROIs:
         plotting.plot_glass_brain(img_path, title = region)
 
 #%% define what data suffix to be decoded(should be in 4D format)
-compositional = True 
+compositional = False 
 
 if compositional:
     comp_suffix = '-Comp'
     d4_files_midixes = ['long-stim-tr', 'long-rule-tr']
 else:
     comp_suffix = ''
-    d4_files_midixes = ['long-tr']
+    d4_files_midixes = ['long-conjunc-tr']
     
 n_d4_files = len(d4_files_midixes)
 glm_folder = 'FIR-02M' + comp_suffix
-FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
-
+FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'results') # FIR-02M:conjunctive task, FIR-02M-Comp:compositional task
 #%% Define all the subjects to run
 
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
-subjs = subjs_all.copy()
+subjs = subjs_all[20:30].copy()
 # subjs = np.setdiff1d(subjs_all, subjs_run)
 
 #%% Define tasks to be decoded
@@ -181,9 +194,8 @@ for subj_idx, subj in enumerate(subjs): # loop over subjects
                 atlas = 'Schaefer'
                 data_ROI = funcs.extract_data_combined_roi_byatlas(d4_data, atlas_image_map, ROI)
             else:
-                atlas = 'AAL'
-                ROI_path = os.path.join(ROIs_AAL_dir, ROI)
-                ROI_image = image.load_img(ROI_path)
+                atlas = ROI_scheme
+                ROI_image = ROIs_imgs[ROI_idx]
                 data_ROI = funcs.extract_data_roi(d4_image, ROI_image)
             
             # define classifier
@@ -240,8 +252,8 @@ for subj_idx, subj in enumerate(subjs): # loop over subjects
 t_elapsed = time.time() - t_start
 
 #%% save the data frame, the numpy array, and the confusion matrix if applicable
-data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/roi_short_trials'
-result_df_name = 'decodeAcc_FIR_Comp_smthN_beta_rois_selectFromShort.csv'
+data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser'
+result_df_name = 'decodeAcc_FIR_Conjunc_smthN_beta_rois_Glasser_FPN_2_25.csv'
 results.to_csv(os.path.join(data_dir, result_df_name))
 
 #%% running one sample t test on the decoding accuracy across participants for each parcel
