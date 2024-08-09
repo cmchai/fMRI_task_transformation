@@ -33,8 +33,8 @@ from scipy import stats
 
 #%% import 4d-data and labels, groups files
 
-sub_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results/sub-005'
-d4_name = 'sub-005_smthN_spmT_RG-long-c1_4D.nii'
+sub_dir = '/Volumes/extdrive/Task_Transform_GLM/GLM-02M/results/sub-002'
+d4_name = 'sub-002_smthN_spmT_RG-long-c1_4D.nii'
 d4_path = os.path.join(sub_dir, d4_name)
 big_4D = image.load_img(d4_path)
 
@@ -60,8 +60,8 @@ len_rdm = 36
 full_task_labs = np.arange(1,10)
 
 groups_idx = funcs.unique_preserve_order(groups)
-labels_bygroup = [labels[groups == group] for group in groups_idx]    # return a list of arrays
-groups_bool = np.concatenate([np.in1d(full_task_labs, labels_1group) for labels_1group in labels_bygroup])
+labels_bygroup = [labels[groups == group] for group in groups_idx]    # return a list of arrays, each array represent the task labels that exist in this group from the data
+groups_bool = np.concatenate([np.in1d(full_task_labs, labels_1group) for labels_1group in labels_bygroup]) # HERE assume the labels per group is ASCENDING in the data !!!
 
 data_roi_rsa = data_roi.copy()
 
@@ -74,7 +74,10 @@ for cell_idx, group_bool in enumerate(groups_bool):
 
 rdm = pairwise_distances(data_roi_rsa, metric='correlation', force_all_finite = 'allow-nan')
 
-plt.imshow(rdm, cmap='viridis', interpolation='none')
+spr_corr, p_spr_corr = stats.spearmanr(data_roi_rsa, axis=1, nan_policy='propagate')
+rdm_spr = 1 - spr_corr
+
+plt.imshow(rdm_spr, cmap='viridis', interpolation='none')
 
 # Add a colorbar to show the scale
 plt.colorbar()
@@ -115,17 +118,7 @@ def  same_stim(tasks):
 
 same_stim_vec = np.vectorize(same_stim)
 
-# Function to create stimulus type model RDM (by looking at if both first and last digit belongs to [])
-def  same_stim(tasks):
-    tasks_vec = np.array([tasks[0], tasks[1]], dtype=int)
-    both_animal = np.in1d(tasks_vec, np.array([1,2,3], dtype=int)).all()
-    both_place = np.in1d(tasks_vec, np.array([4,5,6], dtype=int)).all()
-    both_vehicle = np.in1d(tasks_vec, np.array([7,8,9], dtype=int)).all()
-    return both_animal or both_place or both_vehicle
-
-same_stim_vec = np.vectorize(same_stim)
-
-# Function to create stimulus type model RDM (by looking at if both first and last digit belongs to [])
+# Function to create task rule model RDM (by looking at if both first and last digit belongs to [])
 def  same_rule(tasks):
     tasks_vec = np.array([tasks[0], tasks[1]], dtype=int)
     both_age = np.in1d(tasks_vec, np.array([1,4,7], dtype=int)).all()
@@ -152,7 +145,7 @@ for index, value in np.ndenumerate(block_model_rdm):
 
 plt.imshow(block_model_rdm, cmap='viridis', interpolation='none')    
 
-#%% take uptriangular part of neural and model RDMs
+#%% take up-triangular part of neural and model RDMs
 
 up_bool = np.triu(rdm, k=0)
 plt.imshow(up_bool, cmap='viridis', interpolation='none')

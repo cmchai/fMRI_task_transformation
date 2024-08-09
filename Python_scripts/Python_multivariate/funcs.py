@@ -454,3 +454,76 @@ def from_4runs_to_8groups(labels):
 def split_groups(df):
     df['new_group'] = df.groupby(['runs', 'folds'], sort = False).ngroup() # the new group starts with 0
     return df['new_group'].to_numpy()
+
+
+def fill_nan_in(data_roi, groups, labels, full_task_labs):
+    '''
+    function to fill in nan value to the missing task pattern before constructing RDM
+
+    Parameters
+    ----------
+    data_roi : numpy array [samples * features] containing the 
+    groups : group(run) vector
+    labels : task label vector
+    full_task_labs : the full task labels that should exist in each group(run)
+
+    Returns
+    -------
+    data_roi_rsa: the full ROI pattern with nan filled in missing patterns
+
+    '''  
+    groups_idx = unique_preserve_order(groups)
+    labels_bygroup = [labels[groups == group] for group in groups_idx]    # return a list of arrays, each array represent the task labels that exist in this group from the data
+    groups_bool = np.concatenate([np.in1d(full_task_labs, labels_1group) for labels_1group in labels_bygroup]) # HERE assume the labels per group is ASCENDING in the data !!!
+
+    data_roi_rsa = data_roi.copy()
+    for cell_idx, group_bool in enumerate(groups_bool):
+        if not group_bool:
+            data_roi_rsa = np.insert(data_roi_rsa, cell_idx, np.nan, axis=0)
+    
+    return data_roi_rsa
+
+def gen_archetype_rdm(full_task_labs, n_runs):
+    '''
+    create the archetype RDM in preparation to generate the model RDMs
+
+    Parameters
+    ----------
+    full_task_labs : a 1-d numpy array
+    n_runs : number of runs
+
+    Returns
+    -------
+    archetype_rdm : an 2-d array
+
+    '''
+    task_vec = np.tile(full_task_labs, n_runs).astype(str) # repeat 4 times since there are 4 runs
+    n = task_vec.shape[0]
+    # Create a coordinate grid
+    row_indices, col_indices = np.meshgrid(np.arange(n), np.arange(n), indexing='ij')
+    # Create the matrix by concatenating strings based on coordinates
+    archetype_rdm = np.core.defchararray.add(task_vec[row_indices], task_vec[col_indices])
+    return archetype_rdm
+
+def same_conjunc(task_pair):
+    return task_pair[0] == task_pair[1]
+
+same_conjunc_vec = np.vectorize(same_conjunc)
+
+def  same_stim(tasks):
+    tasks_vec = np.array([tasks[0], tasks[1]], dtype=int)
+    both_animal = np.in1d(tasks_vec, np.array([1,2,3], dtype=int)).all()
+    both_place = np.in1d(tasks_vec, np.array([4,5,6], dtype=int)).all()
+    both_vehicle = np.in1d(tasks_vec, np.array([7,8,9], dtype=int)).all()
+    return both_animal or both_place or both_vehicle
+
+same_stim_vec = np.vectorize(same_stim)
+
+def  same_rule(tasks):
+    tasks_vec = np.array([tasks[0], tasks[1]], dtype=int)
+    both_age = np.in1d(tasks_vec, np.array([1,4,7], dtype=int)).all()
+    both_size = np.in1d(tasks_vec, np.array([2,5,8], dtype=int)).all()
+    both_location = np.in1d(tasks_vec, np.array([3,6,9], dtype=int)).all()
+    return both_age or both_size or both_location
+
+same_rule_vec = np.vectorize(same_rule)
