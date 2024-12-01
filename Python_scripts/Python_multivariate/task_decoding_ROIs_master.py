@@ -83,19 +83,28 @@ ROIs_FLM_imgs = [image.load_img(ROI_FLM_path) for ROI_FLM_path in ROIs_FLM_paths
 
 #%% define ROIs from FPN using the Glasser atlas (Assem et al., 2020)
 ROIs_FPN_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/ROI/HCP-MMP1_resamp'
-ROIs_FPN = [file for file in os.listdir(ROIs_FPN_dir) if file.endswith('.nii')]
+ROIs_FPN = [file for file in os.listdir(ROIs_FPN_dir) if file.endswith('.nii')] # be careful!! the returned list might not be consistent in terms of the order of elements
 ROIs_FPN_paths = [os.path.join(ROIs_FPN_dir, ROI_FPN) for ROI_FPN in ROIs_FPN]
 ROIs_FPN_imgs = [image.load_img(ROI_FPN_path) for ROI_FPN_path in ROIs_FPN_paths]
 
 # visualize the masking image
 plotting.plot_glass_brain(ROIs_FPN_imgs[3], title='Glasser Parcel:' + ROIs_FPN[3])
 
+#%% define ROIs from early auditory regions as control region using the Glasser atlas (Assem et al., 2020)
+ROIs_auditory_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/ROI/HCP-MMP1_resamp/early_auditory'
+ROIs_auditory = [file for file in os.listdir(ROIs_auditory_dir) if file.endswith('.nii')]
+ROIs_auditory_paths = [os.path.join(ROIs_auditory_dir, ROI_auditory) for ROI_auditory in ROIs_auditory]
+ROIs_auditory_imgs = [image.load_img(ROIs_auditory_path) for ROIs_auditory_path in ROIs_auditory_paths]
+
+# visualize the masking image
+plotting.plot_glass_brain(ROIs_auditory_imgs[3], title='Glasser Parcel:' + ROIs_auditory[3])
+
 #####################################
 #%% Define all the ROIs to be decoded
 
-ROIs = ROIs_contAB + ROIs_defB_PFCv
-ROI_scheme = "Schaefer"   # "Schaefer", "Glasser_fpn" and etc.
-# ROIs_imgs = ROIs_FPN_imgs # only application when the schaefer atalas is not used
+ROIs = ROIs_FPN                    # should be a list of names(in number or strings),
+ROI_scheme = "Glasser_fpn"         # "Schaefer", "Glasser_fpn", "Glasser_audi" and etc.
+ROIs_imgs = ROIs_FPN_imgs          # ROIs_FPN_imgs or ROIs_auditory_imgs, only application when the schaefer atalas is not used
 
 #%% choosing whether using feature selection
 feat_select = False
@@ -128,14 +137,15 @@ nib.nifti1.save(img, '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Tas
 
 
 #%% define what data suffix to be decoded(should be in 4D format)
-compositional = True 
+compositional = False 
 
 if compositional:
     comp_suffix = '-Comp'
     d4_files_suffixes = ['RG-long-stim-c1_4D.nii', 'RG-long-stim-c2_4D.nii', 'TF-long-stim-c1_4D.nii', 'TF-long-stim-c2_4D.nii', 'RG-long-rule-c1_4D.nii', 'RG-long-rule-c2_4D.nii', 'TF-long-rule-c1_4D.nii', 'TF-long-rule-c2_4D.nii']
 else:
     comp_suffix = ''
-    d4_files_suffixes = ['RG-long-c1_4D.nii', 'RG-long-c2_4D.nii', 'TF-long-c1_4D.nii', 'TF-long-c2_4D.nii']
+    # d4_files_suffixes = ['RG-long-c1_4D.nii', 'RG-long-c2_4D.nii', 'TF-long-c1_4D.nii', 'TF-long-c2_4D.nii']
+    d4_files_suffixes = ['RG-short_4D.nii', 'TF-short_4D.nii']
     
 n_d4_files = len(d4_files_suffixes)
 glm_folder = 'GLM-02M' + comp_suffix
@@ -144,7 +154,7 @@ FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM', glm_folder,'
 #%% Define all the subjects to run
 
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
-subjs = subjs_all.copy()
+subjs = subjs_all.copy() # should be an iterable
 # subjs = np.setdiff1d(subjs_all, subjs_run)
 
 #%% Define tasks to be decoded
@@ -272,8 +282,8 @@ t_elapsed = time.time() - t_start
 
 #%% save the data frame, the numpy array, and the confusion matrix if applicable
 
-data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/independent_roi'
-result_df_name = 'decodeAcc_smthN_spmT_rois_contAB_defB.csv'
+data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser'
+result_df_name = 'decodeAcc_short_trials_smthN_spmT_rois_FPN_Glasser.csv'
 results.to_csv(os.path.join(data_dir, result_df_name))
 
 #%% running one sample t test on the decoding accuracy across participants for each parcel

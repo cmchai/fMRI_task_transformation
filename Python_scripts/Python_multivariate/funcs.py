@@ -527,3 +527,36 @@ def  same_rule(tasks):
     return both_age or both_size or both_location
 
 same_rule_vec = np.vectorize(same_rule)
+
+def big_rdm_to_small(big_matrix):
+    '''
+    Function to transform big run-by-run RDM or RSM(36*36) into small task-by-task RDM or RSM(9*9)
+    the element of the resulting small RDM or RSM is the average across runs
+
+    Parameters
+    ----------
+    big_rdm : numpy array (double in data type) can be multi-dimensional, the last two dimension has to be 36*36
+
+    Returns
+    -------
+    small_rdm: the last two dimension is 9*9.
+
+    '''
+    
+    matrix_run1 = big_matrix[..., 0:9, 0:9]   # 1st to 9th rows and columns
+    matrix_run2 = big_matrix[..., 9:18, 9:18] # 10th to 18th rows and columns
+    matrix_run3 = big_matrix[..., 18:27, 18:27] # 19th to 27th rows and columns
+    matrix_run4 = big_matrix[..., 27:36, 27:36] # 28th to 36th rows and columns
+    
+    # Stack the arrays into a single 3D array
+    stacked_matrics = np.stack([matrix_run1, matrix_run2, matrix_run3, matrix_run4])
+    
+    # Compute the average along the first axis, ignoring NaN values
+    small_matrix = np.nanmean(stacked_matrics, axis=0)       
+    
+    # small_matrix = (matrix_run1 + matrix_run2 + matrix_run3 + matrix_run4) / 4
+    
+    return small_matrix
+    
+    
+

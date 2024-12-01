@@ -16,6 +16,9 @@ library(lmerTest)
 library(lme4)
 library(emmeans)
 
+library(rempsyc)
+library(flextable)
+
 options(contrasts = c("contr.sum","contr.poly"))
 options(scipen=999)
 
@@ -23,7 +26,7 @@ options(scipen=999)
 #################### importing data #################----
 #####################################################
 
-### for Schaefer atlas 
+### For Schaefer atlas -----
 
 col_names = c("ROI_index", "ROI_label", "col_a", "col_b", "col_c", "col_d")
 roi_labels_df = read.table('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/schaefer_2018/schaefer_2018/Schaefer2018_400Parcels_17Networks_order.txt',
@@ -44,10 +47,19 @@ results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task
   separate(ROI_label, into = c("network_amount", "hemisphere", "network_label", "parcel_label", "parcel_extra_nr"), sep = "_", extra = "merge")
 # filter(grepl("\\[", roi)) # add if the ROIs are combined together before decoding for Schaefer atlas
 
-### for Glasser atlas
+### For Glasser atlas -----
 setwd('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser')
 
 Glasser_SupParcels <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/fmri-extract-HCP-mask-main/fpn_SupParcels.csv')
+
+GLasser_by_supparcels <- Glasser_SupParcels %>%
+  group_by(fpn_SupParcels, fpn_labels) %>%
+  summarise(count=n()) %>%
+  ungroup()
+  
+supparcels_labels <- GLasser_by_supparcels %>%
+  filter(fpn_SupParcels == "iPL") %>%
+  pull(fpn_labels)
 
 results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser/decodeAcc_smthN_spmT_rois_FPN_Glasser.csv') %>%
   mutate(task_dim = case_when(str_detect(condition, "stim") ~ "stim",
@@ -364,9 +376,9 @@ decoding_scheafer_fpn_stats_oneroi <- decoding_scheafer_fpn_stats %>%
 
 ## conjunc decoding analysis of diff super parcels in one model
 
-conjunc_data_fpn <- results_schaefer_fpn %>%
+conjunc_data_fpn <- results %>%
   filter(task_dim == "conjunc",
-         fpn_SupParcels %in% c("iPL", "dlPFC", "aPF")) %>%
+         fpn_SupParcels %in% c("iPL", "dlPF", "aPF")) %>%
   convert_as_factor(subject, block_type, CTI_window, hemisphere, fpn_SupParcels)
 
 ## using mixed effect model ----
@@ -377,7 +389,7 @@ conjunc_data_fpn$CTI_window <- relevel(conjunc_data_fpn$CTI_window, ref = "short
 big_lme <- lmer(formula = mean_accuracy ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (1 | subject),
                 data = conjunc_data_fpn)
 
-emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels)
+emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels) + scale_color_manual(values = c("#4E84C4", "#FC4E07")) 
 
 summary(big_lme, correlation=FALSE)
 
@@ -571,79 +583,123 @@ task_dims <- conditions$task_dim
 sup_parcels <- conditions$fpn_SupParcels
 hemispheres <- c("left", "right")
 
-t_dim <- c()
-t_SupParcels <- c()
-p_block <- c()
-p_cti <- c()
-p_hem <- c()
-p_block_by_cti <- c()
-p_block_by_hem <- c()
-p_cti_by_hem <- c()
-p_3way <- c()
+# t_dim <- c()
+# t_SupParcels <- c()
+# p_block <- c()
+# p_cti <- c()
+# p_hem <- c()
+# p_block_by_cti <- c()
+# p_block_by_hem <- c()
+# p_cti_by_hem <- c()
+# p_3way <- c()
 
-for (i in 1:length(task_dims)) {
+vec_dim <- c()
+vec_supPar <- c()
+vec_hem <- c()
+
+F_block <- c()
+p_block <- c()
+F_cti <- c()
+p_cti <- c()
+F_inter <- c()
+p_inter <- c()
+
+for (i in 7:9) {
   
   data_interest <- results_only_fpn %>%
     filter(task_dim == task_dims[i],
            fpn_SupParcels == sup_parcels[i]) %>%
     convert_as_factor(subject, block_type, CTI_window, hemisphere, roi)
   
-  # using mixed effect model
-  inter_lme <- lmer(formula = mean_accuracy ~ block_type * CTI_window * hemisphere + (1 | subject),
-                    data = data_interest)
-  
-  table_summary <- round((summary(inter_lme, correlation= FALSE))$coefficients, 4)
-  
-  t_dim <- c(t_dim, task_dims[i])
-  t_SupParcels <- c(t_SupParcels, sup_parcels[i])
-  p_block <- c(p_block, table_summary[2,5])
-  p_cti <- c(p_cti, table_summary[3,5])
-  p_hem <- c(p_hem, table_summary[4,5])
-  p_block_by_cti <- c(p_block_by_cti, table_summary[5,5])
-  p_block_by_hem <- c(p_block_by_hem, table_summary[6,5])
-  p_cti_by_hem <- c(p_cti_by_hem, table_summary[7,5])
-  p_3way <- c(p_3way, table_summary[8,5])
+  # using mixed effect model to analyze both hemispheres
+  # inter_lme <- lmer(formula = mean_accuracy ~ block_type * CTI_window * hemisphere + (1 | subject),
+  #                   data = data_interest)
+  # 
+  # table_summary <- round((summary(inter_lme, correlation= FALSE))$coefficients, 4)
+  # 
+  # t_dim <- c(t_dim, task_dims[i])
+  # t_SupParcels <- c(t_SupParcels, sup_parcels[i])
+  # p_block <- c(p_block, table_summary[2,5])
+  # p_cti <- c(p_cti, table_summary[3,5])
+  # p_hem <- c(p_hem, table_summary[4,5])
+  # p_block_by_cti <- c(p_block_by_cti, table_summary[5,5])
+  # p_block_by_hem <- c(p_block_by_hem, table_summary[6,5])
+  # p_cti_by_hem <- c(p_cti_by_hem, table_summary[7,5])
+  # p_3way <- c(p_3way, table_summary[8,5])
   
   ### visualizing the interaction for each super parcel separately for each hemisphere
-  # for (ii in 1:length(hemispheres)) {
-  #   
-  #   inter_summary <- data_interest %>%
-  #     filter(hemisphere == hemispheres[ii]) %>%
-  #     group_by(block_type, CTI_window) %>%
-  #     summarise(submean = mean(mean_accuracy, na.rm = TRUE),
-  #               subsd = sd(mean_accuracy, na.rm = TRUE),
-  #               se = subsd/((43)^.5)) %>%   # standard error
-  #     ungroup()
-  #   
-  #   if (task_dims[i] == "conjunc") {
-  #     ymin = 0.10
-  #     ymax = 0.16
-  #     chance = 0.1111
-  #   } else {
-  #     ymin = 0.28
-  #     ymax = 0.47
-  #     chance = 0.3333
-  #   }
-  #   
-  #   p4 <- ggplot(inter_summary, aes(x = CTI_window, y = submean, group = block_type, color = block_type)) +
-  #     scale_x_discrete(name ="CTI window", 
-  #                      limits=c("short", "long"))+
-  #     geom_point(size = 5) +
-  #     geom_line(size = 1) +
-  #     geom_errorbar(aes(ymin = submean - se, ymax = submean + se),
-  #                   width = .2) +
-  #     scale_color_manual(values = alpha(c("#4E84C4", "#FC4E07"), .6),
-  #                        name = "block type:",
-  #                        breaks = c("RG", "TF")) +
-  #     geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5) +
-  #     coord_cartesian(ylim=c(ymin, ymax)) +
-  #     labs(y = "mean decoding acc") +
-  #     ggtitle(paste0("decoding acc in ", task_dims[i], " for ", hemispheres[ii], " ", sup_parcels[i])) +
-  #     theme_bw()
-  #   
-  #   ggsave(paste0(task_dims[i], "_SupParcel_", hemispheres[ii], " ", sup_parcels[i], ".png"), width = 3.3, height = 3)
-  #}
+  for (ii in 1:length(hemispheres)) {
+    
+    ## run lme on each hemisphere separately
+    data_hem <- results_only_fpn %>%
+      filter(task_dim == task_dims[i],
+             fpn_SupParcels == sup_parcels[i],
+             hemisphere == hemispheres[ii]) %>%
+      convert_as_factor(subject, block_type, CTI_window, hemisphere, roi)
+
+    inter_lme <- lmer(formula = mean_accuracy ~ block_type * CTI_window + (1 | subject),
+                      data = data_hem)
+
+    table_summary <- round(anova(inter_lme), 4)
+
+    vec_dim <- c(vec_dim, task_dims[i])
+    vec_supPar <- c(vec_supPar, sup_parcels[i])
+    vec_hem <- c(vec_hem, hemispheres[ii])
+    F_block <- c(F_block, table_summary$`F value`[1])
+    p_block <- c(p_block, table_summary$`Pr(>F)`[1])
+    F_cti <- c(F_cti, table_summary$`F value`[2])
+    p_cti <- c(p_cti, table_summary$`Pr(>F)`[2])
+    F_inter <- c(F_inter, table_summary$`F value`[3])
+    p_inter <- c(p_inter, table_summary$`Pr(>F)`[3])
+    
+    # ## plotting
+    # inter_summary <- data_interest %>%
+    #   filter(hemisphere == hemispheres[ii]) %>%
+    #   group_by(block_type, CTI_window) %>%
+    #   summarise(submean = mean(mean_accuracy, na.rm = TRUE),
+    #             subsd = sd(mean_accuracy, na.rm = TRUE),
+    #             se = subsd/((43)^.5)) %>%   # standard error
+    #   ungroup()
+    # 
+    # if (task_dims[i] == "conjunc") {
+    #   ymin = 0.10
+    #   ymax = 0.141
+    #   chance = 0.1111
+    # } else {
+    #   ymin = 0.28
+    #   ymax = 0.47
+    #   chance = 0.3333
+    # }
+    # 
+    # p4 <- ggplot(inter_summary, aes(x = CTI_window, y = submean, group = block_type, color = block_type)) +
+    #   scale_x_discrete(name ="CTI window",
+    #                    limits=c("short", "long"))+
+    #   geom_pointrange(aes(ymin = submean - se, ymax = submean + se),
+    #                   size = 1.4, linewidth = 0.8,
+    #                   position = position_dodge(0.00)) +
+    #   geom_line(size = 1.3) +
+    #   scale_color_manual(values = alpha(c("#4E84C4", "#FC4E07"), .85),
+    #                      name = "block type:",
+    #                      breaks = c("RG", "TF")) +
+    #   geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5) +
+    #   coord_cartesian(ylim=c(ymin, ymax)) +
+    #   labs(y = "mean decoding acc") +
+    #   # ggtitle(paste0("decoding acc in ", task_dims[i], " for ", hemispheres[ii], " ", sup_parcels[i])) +
+    #   theme_bw() +
+    #   theme(axis.title.x=element_blank(),
+    #         axis.title.y=element_blank(),
+    #         legend.position="none",
+    #         axis.text.x = element_text(size=14),
+    #         axis.text.y = element_text(size=14))
+    # 
+    # print(p4)
+    # ggsave(paste0(task_dims[i], "_SupParcel_", hemispheres[ii], " ", sup_parcels[i], ".png"), width = 2.6, height = 3)
+  }
 }
+
+decoding_glasser_fpn_stats_per_hem <- tibble(vec_dim, vec_supPar, vec_hem, F_block, p_block, F_cti, p_cti, F_inter, p_inter)
+decoding_glasser_fpn_stats_per_hem_table <- flextable(decoding_glasser_fpn_stats_per_hem)
+print(decoding_glasser_fpn_stats_per_hem_table)
 
 decoding_glasser_fpn_stats <- tibble(t_dim, t_SupParcels, p_block, p_cti, p_hem, p_block_by_cti, p_block_by_hem, p_cti_by_hem, p_3way)
 save(decoding_glasser_fpn_stats, file = "decoding_lme_results_rois_FPN_glasser.Rdata")
@@ -661,12 +717,15 @@ conjunc_data_fpn <- results_only_fpn %>%
 # re-level CTI before fitting the model
 conjunc_data_fpn$CTI_window <- relevel(conjunc_data_fpn$CTI_window, ref = "short")
 
-big_lme <- lmer(formula = mean_accuracy ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (1 | subject),
+big_lme <- lmer(formula = mean_accuracy - 0.1111 ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (1 | subject),
                   data = conjunc_data_fpn)
 
-emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels)
-
 summary(big_lme, correlation=FALSE)
+anova(big_lme)
+
+emmeans(big_lme, ~ block_type)
+
+emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels)
 
 levels(conjunc_data_fpn$fpn_SupParcels)
 levels(conjunc_data_fpn$CTI_window)
@@ -821,14 +880,25 @@ results_only_fpn <- results %>%
 sup_parcels <- c("aPF", "dlPF", "iPL")
 hemispheres <- c("left", "right")
 
-t_SupParcels <- c()
+vec_dim <- c()
+vec_supPar <- c()
+vec_hem <- c()
+
+F_block <- c()
 p_block <- c()
+F_cti <- c()
 p_cti <- c()
-p_hem <- c()
-p_block_by_cti <- c()
-p_block_by_hem <- c()
-p_cti_by_hem <- c()
-p_3way <- c()
+F_inter <- c()
+p_inter <- c()
+
+# t_SupParcels <- c()
+# p_block <- c()
+# p_cti <- c()
+# p_hem <- c()
+# p_block_by_cti <- c()
+# p_block_by_hem <- c()
+# p_cti_by_hem <- c()
+# p_3way <- c()
 
 for (i in 1:length(sup_parcels)) {
   
@@ -836,55 +906,81 @@ for (i in 1:length(sup_parcels)) {
     filter(fpn_SupParcels == sup_parcels[i]) %>%
     convert_as_factor(subject, block_type_test, CTI_window_test, hemisphere, roi)
   
-  # using mixed effect model
-  inter_lme <- lmer(formula = mean_accuracy ~ block_type_test * CTI_window_test * hemisphere + (1 | subject),
-                    data = data_interest)
-  
-  table_summary <- round((summary(inter_lme, correlation= FALSE))$coefficients, 4)
-  
-  t_SupParcels <- c(t_SupParcels, sup_parcels[i])
-  p_block <- c(p_block, table_summary[2,5])
-  p_cti <- c(p_cti, table_summary[3,5])
-  p_hem <- c(p_hem, table_summary[4,5])
-  p_block_by_cti <- c(p_block_by_cti, table_summary[5,5])
-  p_block_by_hem <- c(p_block_by_hem, table_summary[6,5])
-  p_cti_by_hem <- c(p_cti_by_hem, table_summary[7,5])
-  p_3way <- c(p_3way, table_summary[8,5])
+  # # using mixed effect model
+  # inter_lme <- lmer(formula = mean_accuracy ~ block_type_test * CTI_window_test * hemisphere + (1 | subject),
+  #                   data = data_interest)
+  # 
+  # table_summary <- round((summary(inter_lme, correlation= FALSE))$coefficients, 4)
+  # 
+  # t_SupParcels <- c(t_SupParcels, sup_parcels[i])
+  # p_block <- c(p_block, table_summary[2,5])
+  # p_cti <- c(p_cti, table_summary[3,5])
+  # p_hem <- c(p_hem, table_summary[4,5])
+  # p_block_by_cti <- c(p_block_by_cti, table_summary[5,5])
+  # p_block_by_hem <- c(p_block_by_hem, table_summary[6,5])
+  # p_cti_by_hem <- c(p_cti_by_hem, table_summary[7,5])
+  # p_3way <- c(p_3way, table_summary[8,5])
   
   ### visualizing the interaction for each super parcel separately for each hemisphere
   for (ii in 1:length(hemispheres)) {
     
-    inter_summary <- data_interest %>%
-      filter(hemisphere == hemispheres[ii]) %>%
-      group_by(block_type_test, CTI_window_test) %>%
-      summarise(submean = mean(mean_accuracy, na.rm = TRUE),
-                subsd = sd(mean_accuracy, na.rm = TRUE),
-                se = subsd/((43)^.5)) %>%   # standard error
-      ungroup()
+    ## run lme on each hemisphere separately
+    data_hem <- results_only_fpn %>%
+      filter(fpn_SupParcels == sup_parcels[i],
+             hemisphere == hemispheres[ii]) %>%
+      convert_as_factor(subject, block_type_test, CTI_window_test, hemisphere, roi)
     
-    ymin = 0.10
-    ymax = 0.15
-    chance = 0.1111
+    inter_lme <- lmer(formula = mean_accuracy ~ block_type_test * CTI_window_test + (1 | subject),
+                      data = data_hem)
     
-    p4 <- ggplot(inter_summary, aes(x = CTI_window_test, y = submean, group = block_type_test, color = block_type_test)) +
-      scale_x_discrete(name ="CTI window",
-                       limits=c("short", "long"))+
-      geom_point(size = 5) +
-      geom_line(size = 1) +
-      geom_errorbar(aes(ymin = submean - se, ymax = submean + se),
-                    width = .2) +
-      scale_color_manual(values = alpha(c("#4E84C4", "#FC4E07"), .6),
-                         name = "block type:",
-                         breaks = c("RG", "TF")) +
-      geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5) +
-      coord_cartesian(ylim=c(ymin, ymax)) +
-      labs(y = "mean cross-decoding acc") +
-      ggtitle(paste0("Cross CTI decode conjunc for ", hemispheres[ii], " ", sup_parcels[i])) +
-      theme_bw()
+    table_summary <- round(anova(inter_lme), 4)
     
-    ggsave(paste0("CrossCTI_Decode_conjunc_SupParcel_", hemispheres[ii], " ", sup_parcels[i], ".png"), width = 3.9, height = 3.4)
+    vec_dim <- c(vec_dim, "conjunc")
+    vec_supPar <- c(vec_supPar, sup_parcels[i])
+    vec_hem <- c(vec_hem, hemispheres[ii])
+    F_block <- c(F_block, table_summary$`F value`[1])
+    p_block <- c(p_block, table_summary$`Pr(>F)`[1])
+    F_cti <- c(F_cti, table_summary$`F value`[2])
+    p_cti <- c(p_cti, table_summary$`Pr(>F)`[2])
+    F_inter <- c(F_inter, table_summary$`F value`[3])
+    p_inter <- c(p_inter, table_summary$`Pr(>F)`[3])
+    
+    # ## plotting the cross decoding result per super parcel per hemisphere
+    # inter_summary <- data_interest %>%
+    #   filter(hemisphere == hemispheres[ii]) %>%
+    #   group_by(block_type_test, CTI_window_test) %>%
+    #   summarise(submean = mean(mean_accuracy, na.rm = TRUE),
+    #             subsd = sd(mean_accuracy, na.rm = TRUE),
+    #             se = subsd/((43)^.5)) %>%   # standard error
+    #   ungroup()
+    # 
+    # ymin = 0.10
+    # ymax = 0.15
+    # chance = 0.1111
+    # 
+    # p4 <- ggplot(inter_summary, aes(x = CTI_window_test, y = submean, group = block_type_test, color = block_type_test)) +
+    #   scale_x_discrete(name ="CTI window",
+    #                    limits=c("short", "long"))+
+    #   geom_point(size = 5) +
+    #   geom_line(size = 1) +
+    #   geom_errorbar(aes(ymin = submean - se, ymax = submean + se),
+    #                 width = .2) +
+    #   scale_color_manual(values = alpha(c("#4E84C4", "#FC4E07"), .6),
+    #                      name = "block type:",
+    #                      breaks = c("RG", "TF")) +
+    #   geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5) +
+    #   coord_cartesian(ylim=c(ymin, ymax)) +
+    #   labs(y = "mean cross-decoding acc") +
+    #   ggtitle(paste0("Cross CTI decode conjunc for ", hemispheres[ii], " ", sup_parcels[i])) +
+    #   theme_bw()
+    # 
+    # ggsave(paste0("CrossCTI_Decode_conjunc_SupParcel_", hemispheres[ii], " ", sup_parcels[i], ".png"), width = 3.9, height = 3.4)
   }
 }
+
+cross_cti_decoding_glasser_fpn_stats <- tibble(vec_dim, vec_supPar, vec_hem, F_block, p_block, F_cti, p_cti, F_inter, p_inter)
+cross_cti_decoding_glasser_fpn_stats_table <- flextable(cross_cti_decoding_glasser_fpn_stats)
+print(cross_cti_decoding_glasser_fpn_stats_table)
 
 cross_cti_decoding_glasser_fpn_stats <- tibble(t_SupParcels, p_block, p_cti, p_hem, p_block_by_cti, p_block_by_hem, p_cti_by_hem, p_3way)
 save(cross_cti_decoding_glasser_fpn_stats, file = "cross_cti_decoding_lme_results_rois_FPN_glasser.Rdata")
@@ -1120,4 +1216,66 @@ result_conjunc_summary2 <- results_fpn %>%
     facet_wrap(vars(roi), nrow = 2)
 )
 
+############################################################
+##### task decoding in control region : early auditory #####
 
+results_aud <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser/decodeAcc_smthN_spmT_rois_Auditory_Glasser.csv') %>%
+  mutate(task_dim = case_when(str_detect(condition, "stim") ~ "stim",
+                              str_detect(condition, "rule") ~ "rule",
+                              .default = "conjunc"),
+         block_type = if_else(str_detect(condition, "RG-"), "RG", "TF"),
+         CTI_window = if_else(str_detect(condition, "c1"), "short", "long")) %>%
+  left_join(aud_roi_mapping) %>%
+  mutate(roi_glas = str_extract(roi, "^[^_]+"),
+         hemisphere = str_extract(roi, "(?<=_)[^.]+")) %>%
+  convert_as_factor(CTI_window, block_type, hemisphere, subject)
+
+## using mixed effect model
+# re-level CTI before fitting the model
+results_aud$CTI_window <- relevel(results_aud$CTI_window, ref = "short")
+
+aud_lme <- lmer(formula = mean_accuracy - 0.1111 ~ block_type * CTI_window * hemisphere + (1 | subject),
+                data = results_aud)
+
+summary(aud_lme, correlation=FALSE)
+anova(aud_lme)
+
+## plotting the decoding results
+hemispheres <- c("left", "right")
+
+for (i in 1:length(hemispheres)) {
+  
+  inter_summary <- results_aud %>%
+    filter(hemisphere == hemispheres[i]) %>%
+    group_by(block_type, CTI_window) %>%
+    summarise(submean = mean(mean_accuracy, na.rm = TRUE),
+              subsd = sd(mean_accuracy, na.rm = TRUE),
+              se = subsd/((43)^.5)) %>%   # standard error
+    ungroup()
+
+    ymin = 0.10
+    ymax = 0.141
+    chance = 0.1111
+
+    p4 <- ggplot(inter_summary, aes(x = CTI_window, y = submean, group = block_type, color = block_type)) +
+      scale_x_discrete(name ="CTI window",
+                       limits=c("short", "long"))+
+      geom_pointrange(aes(ymin = submean - se, ymax = submean + se),
+                      size = 1.4, linewidth = 0.8,
+                      position = position_dodge(0.00)) +
+      geom_line(size = 1.3) +
+      scale_color_manual(values = alpha(c("#4E84C4", "#FC4E07"), .85),
+                         name = "block type:",
+                         breaks = c("RG", "TF")) +
+      geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5) +
+      coord_cartesian(ylim=c(ymin, ymax)) +
+      labs(y = "mean decoding acc") +
+      # ggtitle(paste0("decoding acc in ", task_dims[i], " for ", hemispheres[ii], " ", sup_parcels[i])) +
+      theme_bw() +
+      theme(axis.title.x=element_blank(),
+            axis.title.y=element_blank(),
+            legend.position="none",
+            axis.text.x = element_text(size=14),
+            axis.text.y = element_text(size=14))
+    print(p4)
+  }
