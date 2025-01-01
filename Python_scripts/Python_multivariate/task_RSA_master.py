@@ -37,15 +37,40 @@ ROIs_FPN = [file for file in sorted(os.listdir(ROIs_FPN_dir)) if file.endswith('
 ROIs_FPN_paths = [os.path.join(ROIs_FPN_dir, ROI_FPN) for ROI_FPN in ROIs_FPN]
 ROIs_FPN_imgs = [image.load_img(ROI_FPN_path) for ROI_FPN_path in ROIs_FPN_paths]
 
+#%% or define ROIs based on the Schaefer atlas
+
+#--- Load the ROI files from Schaefer et al., 2018
+atlas_root_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas'
+atlas_subdir = 'schaefer_2018/schaefer_2018'
+atlas_name = 'Schaefer2018_400Parcels_17Networks_order_FSLMNI152_2.5mm.nii.gz'
+atlas_path = os.path.join(atlas_root_dir, atlas_subdir, atlas_name)
+atlas_image = image.load_img(atlas_path)
+atlas_image_map = atlas_image.get_fdata()
+
+atlas_labels_name = 'Schaefer2018_400Parcels_17Networks_order.txt'
+atlas_labels_path = os.path.join(atlas_root_dir, atlas_subdir, atlas_labels_name)
+atlas_labels_df = pd.read_csv(atlas_labels_path, delimiter = "\t", header = None)
+atlas_labels = np.array(atlas_labels_df[1].tolist().copy())
+atlas_labels = np.insert(atlas_labels, 0, "Background")
+
+#--- Select ROIs from specific networks from this atlas
+atlas_labels_df_contAB = atlas_labels_df[atlas_labels_df[1].str.contains("ContA") | atlas_labels_df[1].str.contains("ContB")]
+ROIs_contAB = atlas_labels_df_contAB[0].tolist()
+
+atlas_labels_df_defB_PFCv = atlas_labels_df[atlas_labels_df[1].str.contains("DefaultB_PFCv")]
+ROIs_defB_PFCv = atlas_labels_df_defB_PFCv[0].tolist()
+
+ROIs_Schaefer_FPN = ROIs_contAB + ROIs_defB_PFCv
+
 #%% define d4 files that need to be extracted (first dimension of the matrix)
 full_task_labs = np.arange(1,10)
 d4_files_suffixes = ['RG-long-c1_4D.nii', 'RG-long-c2_4D.nii', 'TF-long-c1_4D.nii', 'TF-long-c2_4D.nii']
 FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM','GLM-02M','results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
 
 #%% Define all the ROIs to be decoded (second dimension of the matrix)
-ROIs = ROIs_FPN
-ROI_scheme = "Glasser_fpn"   # "Schaefer", "Glasser_fpn" and etc.
-ROIs_imgs = ROIs_FPN_imgs    # only application when the schaefer atalas is not used
+ROIs = ROIs_Schaefer_FPN     # should be a list of numbers(Schaefer atlas) or a list of images(Glasser atlas)
+ROI_scheme = "Schaefer"      # "Schaefer", "Glasser_fpn" and etc.
+ROIs_imgs = []               # only application when the schaefer atalas is not used, otherwise, should be defined as a empty list
 
 #%% Define all the subjects to run (third dimension of the matrix)
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
@@ -68,7 +93,8 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
         # load d4 image
         d4_name = funcs.search_files(subj_dir, bids_subj, d4_suffix)[0] # should only return one element from a size of 1 list
         d4_path = os.path.join(subj_dir, d4_name)
-        d4_image = image.load_img(d4_path)                  
+        d4_image = image.load_img(d4_path)
+        d4_data = d4_image.get_fdata()                  
         
         # load label files, get group and task ID information
         labels_file = d4_name.replace('4D.nii', 'labels.txt')
@@ -81,10 +107,23 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
         
         for ROI_idx, ROI in enumerate(ROIs):
             
-            ROI_image = ROIs_imgs[ROI_idx]
+            if type(ROI) == int: # if ROI belongs to Schaefer 2018 atlas          
+                # get pattern from a ROI, result is an array(samples * features)
+                data_ROI = funcs.extract_data_roi_byatlas(d4_data, atlas_image_map, ROI)
             
-            # get pattern from a ROI, result is an array(samples * features)
-            data_ROI = funcs.extract_data_roi(d4_image, ROI_image)
+            elif type(ROI) == str: # if ROI belongs to Glasser atlas
+                
+                if not ROIs_imgs: # if ROIs_img is an empty list
+                    print("ROIs_img is an empty list")
+                    sys.exit("errors about ROI imgs")      
+                else:
+                    ROI_image = ROIs_imgs[ROI_idx]                
+                
+                # get pattern from a ROI, result is an array(samples * features)
+                data_ROI = funcs.extract_data_roi(d4_image, ROI_image)
+            else:
+                print('error:ROI is neither a number nor a string!')
+                sys.exit("errors about ROIs")
             
             # fill nan in the missing patterns
             data_rsa = funcs.fill_nan_in(data_ROI, groups, labels, full_task_labs)
@@ -97,10 +136,20 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
             big_RDM[d4_idx, ROI_idx, subj_idx, :, :] = rdm_spr
 
 #%% save big RDM
+
+if ROI_scheme == "Schaefer":
+    results_np_name = 'big_RDM_schaefer_sorted'
+    ROIs_np_name = 'ROIs_schaefer_sorted'
+elif ROI_scheme == "Glasser_fpn":
+    results_np_name = 'big_RDM_sorted'
+    ROIs_np_name = 'ROIs_sorted'
+else:
+    print('ROI scheme cannot be found when trying to save the numpy array data')
+    sys.error('Data naming error, data not saved')
+
 data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA'
-results_np_name = 'big_RDM_sorted'
 np.save(os.path.join(data_dir, results_np_name), big_RDM)
-np.save(os.path.join(data_dir, 'ROIs_sorted'), ROIs)
+np.save(os.path.join(data_dir, ROIs_np_name), ROIs)
 
 #%% Contructing relevant model RDM
 
@@ -141,8 +190,20 @@ plt.imshow(full_up, cmap='viridis', interpolation='none')
 #%% import big RDM is not imported yet
 
 data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA'
-big_RDM = np.load(os.path.join(data_dir, 'big_RDM_sorted.npy'))
-ROIs = np.load(os.path.join(data_dir, 'ROIs_sorted.npy'))
+ROI_scheme == "Schaefer" # "Schaefer" or "Glasser_fpn"
+
+if ROI_scheme == "Schaefer":
+    results_np_file = 'big_RDM_schaefer_sorted.npy'
+    ROIs_np_file = 'ROIs_schaefer_sorted.npy'
+elif ROI_scheme == "Glasser_fpn":
+    results_np_file = 'big_RDM_sorted.npy'
+    ROIs_np_file = 'ROIs_sorted.npy'
+else:
+    print('ROI scheme cannot be found when trying to save the numpy array data')
+    sys.error('Data naming error, data not saved')
+
+big_RDM = np.load(os.path.join(data_dir, results_np_file))
+ROIs = np.load(os.path.join(data_dir, ROIs_np_file))
 
 #%% Contructing relevant model RDM
 
@@ -231,8 +292,16 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
 #%% create and save the date frame
 columns = {"condition":condition_df, "ROI":ROI_df, "subject":subj_df, "task_relation":task_relation_df, "distance":dist_df}
 distance_df = pd.DataFrame(columns)
+distance_df.head(10)
 
-distance_df_name = 'results_RDM_glasser_sorted.csv'
+if ROI_scheme == "Schaefer":
+    distance_df_name = 'results_RDM_schaefer_sorted.csv'
+elif ROI_scheme == "Glasser_fpn":
+    distance_df_name = 'results_RDM_glasser_sorted.csv'
+else:
+    print('ROI scheme cannot be found when trying to save the distance data')
+    sys.error('Data naming error, data not saved')
+
 distance_df.to_csv(os.path.join(data_dir, distance_df_name))
 
 #%% create task-by-task RDM(or RSM) 9*9 matrix by averaging distance or similarity across runs
@@ -242,7 +311,7 @@ small_RDM = funcs.big_rdm_to_small(big_RDM)
 one_slice = np.squeeze(small_RDM[2,42,3,:,:])
 plt.imshow(np.squeeze(small_RDM[2,42,3,:,:]), cmap='viridis', interpolation='none')
 
-# contruct task-by-task(9*9) model RSM or RSM
+# contruct task-by-task(9*9) model RSM or RDM
 big_model_RSM = same_rule_or_stim_bool
 big_model_RDM = ~big_model_RSM
 plt.imshow(big_model_RDM, cmap='viridis', interpolation='none')
@@ -284,6 +353,12 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
 columns = {"condition":condition_df, "ROI":ROI_df, "subject":subj_df, "spear_rho_empirical_model":mdl_corr_df, "spear_p_empirical_model":mdl_corr_p_df}
 spear_empirical_model_df = pd.DataFrame(columns)
 
-spear_empirical_model_df_name = 'spear_empirical_model_glasser_sorted.csv'
-spear_empirical_model_df.to_csv(os.path.join(data_dir, spear_empirical_model_df_name))
+if ROI_scheme == "Schaefer":
+    spear_empirical_model_df_name = 'spear_empirical_model_schaefer_sorted.csv'
+elif ROI_scheme == "Glasser_fpn":
+    spear_empirical_model_df_name = 'spear_empirical_model_glasser_sorted.csv'
+else:
+    print('ROI scheme cannot be found when trying to save the distance data')
+    sys.error('Data naming error, data not saved')
 
+spear_empirical_model_df.to_csv(os.path.join(data_dir, spear_empirical_model_df_name))

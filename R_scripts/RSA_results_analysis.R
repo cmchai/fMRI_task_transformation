@@ -24,26 +24,66 @@ options(scipen=999)
 
 #########################################
 ############# Glasser ROIs ##############
-
-### for Glasser atlas
 setwd('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA')
+parcel_scheme <- 'schaefer' # or 'glasser'
 
+## for Glasser atlas
 Glasser_SupParcels <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/fmri-extract-HCP-mask-main/fpn_SupParcels.csv')
 
-results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA/results_RDM_glasser_sorted.csv') %>%
-  mutate(block_type = if_else(str_detect(condition, "RG-"), "RG", "TF"),
-         CTI_window = if_else(str_detect(condition, "c1"), "short", "long"),
-         bet_or_within = if_else(str_detect(task_relation, "_conjunc"), "within", "between")) %>%
-  mutate(
-    spear_coef = 1 - distance,
-    roi_glas = str_extract(ROI, "^[^_]+"),
-    hemisphere = str_extract(ROI, "(?<=_)[^.]+")
-  ) %>%
-  left_join(Glasser_SupParcels, by = join_by(roi_glas == fpn_labels)) %>%
-  convert_as_factor(subject, block_type, CTI_window, bet_or_within, fpn_SupParcels, hemisphere)
+## for Schaefer atlas
+# import all the labels and their corresponding name of the ROI
+col_names = c("ROI_index", "ROI_label", "col_a", "col_b", "col_c", "col_d")
+roi_labels_df = read.table('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/schaefer_2018/schaefer_2018/Schaefer2018_400Parcels_17Networks_order.txt',
+                           sep='\t', 
+                           header=FALSE,col.names = col_names) %>%
+  tibble() %>%
+  select("ROI_index", "ROI_label")
+
+# include all the super parcel labels
+parcels_network_fpn <- c("ContA_IPS", "ContB_IPL","ContA_PFClv", "ContA_PFCl", "ContB_PFClv", "DefaultB_PFCv") 
+fpn_SupParcels <- c("iPL", "iPL", "dlPF", "dlPF", "aPF", "vlPF") 
+unique_fpn_SupParcels <- c("iPL", "dlPF", "aPF", "vlPF") 
+hemispheres <- c("LH", "RH")
+
+schaefer_parcel_to_fpn_sup <- tibble(parcels_network_fpn, fpn_SupParcels)
+
+## Create the big result data frame
+
+if (parcel_scheme == 'glasser') {
+  
+  results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA/results_RDM_glasser_sorted.csv') %>%
+    mutate(block_type = if_else(str_detect(condition, "RG-"), "RG", "TF"),
+           CTI_window = if_else(str_detect(condition, "c1"), "short", "long"),
+           bet_or_within = if_else(str_detect(task_relation, "_conjunc"), "within", "between")) %>%
+    mutate(
+      spear_coef = 1 - distance,
+      roi = str_extract(ROI, "^[^_]+"),
+      hemisphere = str_extract(ROI, "(?<=_)[^.]+")
+    ) %>%
+    left_join(Glasser_SupParcels, by = join_by(roi_glas == fpn_labels)) %>%
+    convert_as_factor(subject, block_type, CTI_window, bet_or_within, fpn_SupParcels, hemisphere, roi)
+  
+} else if (parcel_scheme == 'schaefer') {
+  
+  results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA/results_RDM_schaefer_sorted.csv') %>%
+    mutate(roi = ROI,
+           block_type = if_else(str_detect(condition, "RG-"), "RG", "TF"),
+           CTI_window = if_else(str_detect(condition, "c1"), "short", "long"),
+           bet_or_within = if_else(str_detect(task_relation, "_conjunc"), "within", "between"),
+           spear_coef = 1 - distance) %>%
+    left_join(roi_labels_df, by = join_by(roi == ROI_index)) %>%
+    mutate(roi_label = ROI_label) %>%
+    separate(ROI_label, into = c("network_amount", "hemisphere", "network_label", "parcel_label", "parcel_extra_nr"), sep = "_", extra = "merge") %>%
+    mutate(network_parcel = paste(network_label, parcel_label, sep = "_")) %>%
+    left_join(schaefer_parcel_to_fpn_sup, by = join_by(network_parcel == parcels_network_fpn)) %>%
+    convert_as_factor(subject, block_type, CTI_window, bet_or_within, fpn_SupParcels, hemisphere, roi)
+}
 
 head(results)
 n_sub = length(unique(results$subject))
+
+# saving on object in RData format
+save(results, file = "results_RDM_schaefer_sorted_preprocessed.RData")
 
 # check grouping factors
 results %>%
@@ -116,12 +156,12 @@ within_similar <- results %>%
   p3 <- ggplot(within_similar, aes(x = factor(CTI_window, levels = c("short", "long")), y = subCorr, color = block_type, group = block_type)) +
     geom_line(aes(group = block_type), size = 1) +
     geom_pointrange(aes(ymin = subCorr - se, ymax = subCorr + se),
-                    size = 1, linewidth = 1) +
+                    shape=15, size = 1, linewidth = 1) +
     scale_color_manual(values = c("#4E84C4", "#FC4E07"),
                        name = "block type:",
                        breaks = c("RG", "TF"),
                        labels = c("Regular", "Transform")) +
-    theme_classic() +
+    theme_bw() +
     labs(x = "CTI", y = "Spearman's rho") +
     ggtitle("between-run pattern consistency of the same task") + 
     facet_wrap(vars(fpn_SupParcels, hemisphere), nrow = 3)
