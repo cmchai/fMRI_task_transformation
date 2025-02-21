@@ -29,6 +29,7 @@ import nibabel as nib
 
 from sklearn.metrics import pairwise_distances
 from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
 from scipy import stats
 
 #%% define ROIs from FPN using the Glasser atlas (Assem et al., 2020)
@@ -68,9 +69,9 @@ d4_files_suffixes = ['RG-long-c1_4D.nii', 'RG-long-c2_4D.nii', 'TF-long-c1_4D.ni
 FLM_root_dir = os.path.join('/Volumes/extdrive/Task_Transform_GLM','GLM-02M','results') # GLM-02M:unsmoothed, GLM-02M-B:8mm smoothed
 
 #%% Define all the ROIs to be decoded (second dimension of the matrix)
-ROIs = ROIs_Schaefer_FPN     # should be a list of numbers(Schaefer atlas) or a list of images(Glasser atlas)
-ROI_scheme = "Schaefer"      # "Schaefer", "Glasser_fpn" and etc.
-ROIs_imgs = []               # only application when the schaefer atalas is not used, otherwise, should be defined as a empty list
+ROIs = ROIs_FPN              # should be a list of numbers(Schaefer atlas) or a list of images(Glasser atlas)
+ROI_scheme = "Glasser_fpn"   # "Schaefer", "Glasser_fpn" and etc.
+ROIs_imgs = ROIs_FPN_imgs    # only applicable when the schaefer atalas is not used, otherwise, should be defined as a empty list
 
 #%% Define all the subjects to run (third dimension of the matrix)
 subjs_all = np.concatenate((np.arange(2,6), np.arange(7,12), np.arange(13,18), np.arange(20,45), np.arange(46,50)))
@@ -190,7 +191,7 @@ plt.imshow(full_up, cmap='viridis', interpolation='none')
 #%% import big RDM is not imported yet
 
 data_dir = '/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/RSA'
-ROI_scheme == "Schaefer" # "Schaefer" or "Glasser_fpn"
+ROI_scheme = "Glasser_fpn" # "Schaefer" or "Glasser_fpn"
 
 if ROI_scheme == "Schaefer":
     results_np_file = 'big_RDM_schaefer_sorted.npy'
@@ -199,7 +200,7 @@ elif ROI_scheme == "Glasser_fpn":
     results_np_file = 'big_RDM_sorted.npy'
     ROIs_np_file = 'ROIs_sorted.npy'
 else:
-    print('ROI scheme cannot be found when trying to save the numpy array data')
+    print('ROI scheme cannot be identified')
     sys.error('Data naming error, data not saved')
 
 big_RDM = np.load(os.path.join(data_dir, results_np_file))
@@ -214,18 +215,24 @@ archetype_rdm = funcs.gen_archetype_rdm(full_task_labs, 4)
 within_task_bool = funcs.same_conjunc_vec(archetype_rdm)
 within_task_bool_up = np.triu(within_task_bool, k=1)
 # plt.imshow(within_task_bool_up, cmap='viridis', interpolation='none')
+# plt.colorbar()
+# aa = archetype_rdm[within_task_bool]
 
 ## same stim bool and and their uptriangular bool (! without conjunc) ##
 same_stim_bool = funcs.same_stim_vec(archetype_rdm)
 same_stim_no_conjunc_bool = same_stim_bool & ~within_task_bool
 same_stim_no_conjunc_bool_up = np.triu(same_stim_no_conjunc_bool, k=1)
 # plt.imshow(same_stim_no_conjunc_bool_up, cmap='viridis', interpolation='none')
+# plt.colorbar()
+# bb = archetype_rdm[same_stim_no_conjunc_bool]
 
 ## same rule bool and and their uptriangular bool (! without conjunc) ##
 same_rule_bool = funcs.same_rule_vec(archetype_rdm)
 same_rule_no_conjunc_bool = same_rule_bool & ~within_task_bool
 same_rule_no_conjunc_bool_up = np.triu(same_rule_no_conjunc_bool, k=1)
 # plt.imshow(same_rule_no_conjunc_bool_up, cmap='viridis', interpolation='none')
+# plt.colorbar()
+# cc = archetype_rdm[same_rule_no_conjunc_bool]
 
 ## same (rule or stim) bool and and their uptriangular bool (! without conjunc) ##
 same_rule_or_stim_bool = same_rule_no_conjunc_bool | same_stim_no_conjunc_bool
@@ -242,10 +249,15 @@ except_conjunc = same_rule_or_stim_bool_up | no_same_bool_up
 full_up = within_task_bool_up | same_stim_no_conjunc_bool_up | same_rule_no_conjunc_bool_up | no_same_bool_up
 # plt.imshow(except_conjunc, cmap='viridis', interpolation='none')
 
+## same run bool and their uptriangular bool
+same_run_bool = funcs.same_run(archetype_rdm)
+same_run_bool_up = np.triu(same_run_bool, k=1)
+# plt.imshow(same_run_bool_up, cmap='viridis', interpolation='none')
+# plt.colorbar()
 
 #%% extracting within task similarity and between task smilarity values
 
-## create the lists to store the data
+# create the lists to store the data
 condition_df = []
 ROI_df = []
 subj_df = []
@@ -289,7 +301,7 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
             dist_df.extend(same_no_elements)
 
 
-#%% create and save the date frame
+# create and save the date frame
 columns = {"condition":condition_df, "ROI":ROI_df, "subject":subj_df, "task_relation":task_relation_df, "distance":dist_df}
 distance_df = pd.DataFrame(columns)
 distance_df.head(10)
@@ -304,10 +316,62 @@ else:
 
 distance_df.to_csv(os.path.join(data_dir, distance_df_name))
 
-#%% create task-by-task RDM(or RSM) 9*9 matrix by averaging distance or similarity across runs
+#%% Correlating the BIG(36*36 matrix) model and task RDM
 
-# construct task-by-task(9*9) empirical RDM or RSM
-small_RDM = funcs.big_rdm_to_small(big_RDM)
+# contruct task-by-task(36*36) model RDM
+big_model_RSM = within_task_bool
+big_model_RDM = (~big_model_RSM)*1
+plt.imshow(big_model_RDM, cmap='viridis', interpolation='none')
+plt.colorbar()
+
+# only retain the up-triangular part of model RDM in a 1-d numpy array
+idx_uptri_big = np.triu_indices(big_model_RDM.shape[0], k=1)
+big_model_RDM_uptri = big_model_RDM[idx_uptri_big] # returns a 1-d numpy array
+
+# compute the correlation(spearman's rho) between BIG model and empirical RDM
+condition_df = []
+ROI_df = []
+subj_df = []
+mdl_corr_df = []
+mdl_corr_p_df = []
+
+
+for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
+    
+   for ROI_idx, ROI in enumerate(ROIs):
+    
+       for subj_idx, subj in enumerate(subjs):
+           
+           task_RDM = np.squeeze(big_RDM[d4_idx, ROI_idx, subj_idx, :, :])
+           task_RDM_uptri = task_RDM[idx_uptri_big] # returns a 1-d numpy array
+           
+           mdl_corr, mdl_corr_p = stats.spearmanr(task_RDM_uptri, big_model_RDM_uptri, nan_policy='omit', alternative='two-sided')
+           
+           # concatenate the data frame
+           condition_df.extend([d4_suffix])
+           ROI_df.extend([ROI])
+           subj_df.extend([subj])
+           mdl_corr_df.extend([mdl_corr])
+           mdl_corr_p_df.extend([mdl_corr_p])
+
+# create and save the date frame for the big RDM correlation
+columns = {"condition":condition_df, "ROI":ROI_df, "subject":subj_df, "spear_rho_empirical_model":mdl_corr_df, "spear_p_empirical_model":mdl_corr_p_df}
+spear_empirical_model_df = pd.DataFrame(columns)
+
+if ROI_scheme == "Schaefer":
+    spear_empirical_model_df_name = 'spear_empirical_model_conjunc_schaefer_sorted.csv'
+elif ROI_scheme == "Glasser_fpn":
+    spear_empirical_model_df_name = 'spear_empirical_model_conjunc_glasser_sorted.csv'
+else:
+    print('ROI scheme cannot be identified')
+    sys.error('Data naming error, data not saved')
+
+spear_empirical_model_df.to_csv(os.path.join(data_dir, spear_empirical_model_df_name))
+
+#%% Correlating the SMALL(9*9 matrix) model and task RDM (or RSM) to quantify the compositional coding
+
+# construct task-by-task(9*9) empirical RDM or RSM  by averaging within-run distance or similarity across runs
+small_RDM = funcs.big_rdm_to_small_between(big_RDM)
 one_slice = np.squeeze(small_RDM[2,42,3,:,:])
 plt.imshow(np.squeeze(small_RDM[2,42,3,:,:]), cmap='viridis', interpolation='none')
 
@@ -316,8 +380,9 @@ big_model_RSM = same_rule_or_stim_bool
 big_model_RDM = ~big_model_RSM
 plt.imshow(big_model_RDM, cmap='viridis', interpolation='none')
 
-small_model_RDM = funcs.big_rdm_to_small(big_model_RDM*1)
+small_model_RDM = funcs.big_rdm_to_small_within(big_model_RDM*1)
 plt.imshow(small_model_RDM, cmap='viridis', interpolation='none')
+plt.colorbar()
 
 idx_uptri_small = np.triu_indices(small_model_RDM.shape[0], k=1)
 small_model_RDM_uptri = small_model_RDM[idx_uptri_small] # returns a 1-d numpy array
@@ -349,16 +414,184 @@ for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
            mdl_corr_p_df.extend([mdl_corr_p])
 
 
-#%% create and save the date frame for the RDM correlation
+# create and save the date frame for the RDM correlation
 columns = {"condition":condition_df, "ROI":ROI_df, "subject":subj_df, "spear_rho_empirical_model":mdl_corr_df, "spear_p_empirical_model":mdl_corr_p_df}
 spear_empirical_model_df = pd.DataFrame(columns)
 
 if ROI_scheme == "Schaefer":
-    spear_empirical_model_df_name = 'spear_empirical_model_schaefer_sorted.csv'
+    spear_empirical_model_df_name = 'spear_empirical_model_bet_run_schaefer_sorted.csv'
 elif ROI_scheme == "Glasser_fpn":
-    spear_empirical_model_df_name = 'spear_empirical_model_glasser_sorted.csv'
+    spear_empirical_model_df_name = 'spear_empirical_model_bet_run_glasser_sorted.csv'
 else:
     print('ROI scheme cannot be found when trying to save the distance data')
     sys.error('Data naming error, data not saved')
 
 spear_empirical_model_df.to_csv(os.path.join(data_dir, spear_empirical_model_df_name))
+
+#%% Correlating the SMALL(9*9 matrix) conjunctive model and data RDM (or RSM) to quantify the conjunctive coding
+
+# construct task-by-task(9*9) empirical RDM or RSM  by averaging between-run distance or similarity across run pairs
+small_RDM_bet = funcs.big_rdm_to_small_between(big_RDM)
+# plt.imshow(np.squeeze(small_RDM_bet[2,42,3,:,:]), cmap='viridis', interpolation='none')
+# plt.colorbar()
+
+# contruct task-by-task(9*9) conjunctive model RSM or RDM
+big_conjunc_model_RSM = within_task_bool
+big_conjunc_model_RDM = ~big_conjunc_model_RSM
+# plt.imshow(big_conjunc_model_RDM, cmap='viridis', interpolation='none')
+# plt.colorbar()
+
+small_conjunc_model_RDM = funcs.big_rdm_to_small_between(big_conjunc_model_RDM*1)
+# plt.imshow(small_conjunc_model_RDM, cmap='viridis', interpolation='none')
+# plt.colorbar()
+
+# since we only use between-run distance, we don't have to only retrieve the uptriangular part of it, but the whole RDM
+small_conjunc_model_RDM_vec = small_conjunc_model_RDM.flatten(order='C') 
+
+# compute the correlation(spearman's rho) between model and empirical RDM or RSM
+condition_df = []
+ROI_df = []
+subj_df = []
+mdl_corr_df = []
+mdl_corr_p_df = []
+
+
+for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
+    
+   for ROI_idx, ROI in enumerate(ROIs):
+    
+       for subj_idx, subj in enumerate(subjs):
+           
+           task_RDM = np.squeeze(small_RDM_bet[d4_idx, ROI_idx, subj_idx, :, :])
+           task_RDM_vec = task_RDM.flatten(order='C')
+           
+           mdl_corr, mdl_corr_p = stats.spearmanr(task_RDM_vec, small_conjunc_model_RDM_vec, nan_policy='omit', alternative='two-sided')
+           
+           # concatenate the data frame
+           condition_df.extend([d4_suffix])
+           ROI_df.extend([ROI])
+           subj_df.extend([subj])
+           mdl_corr_df.extend([mdl_corr])
+           mdl_corr_p_df.extend([mdl_corr_p])
+
+# create and save the date frame for the RDM correlation
+columns = {"condition":condition_df, "ROI":ROI_df, "subject":subj_df, "spear_rho_empirical_model":mdl_corr_df, "spear_p_empirical_model":mdl_corr_p_df}
+spear_empirical_conjunc_model_df = pd.DataFrame(columns)
+
+if ROI_scheme == "Schaefer":
+    spear_empirical_conjunc_model_df_name = 'spear_empirical_conjunc_model_schaefer_sorted.csv'
+elif ROI_scheme == "Glasser_fpn":
+    spear_empirical_conjunc_model_df_name = 'spear_empirical_conjunc_model_glasser_sorted.csv'
+else:
+    print('ROI scheme cannot be found when trying to save the distance data')
+    sys.error('Data naming error, data not saved')
+
+spear_empirical_conjunc_model_df.to_csv(os.path.join(data_dir, spear_empirical_conjunc_model_df_name))
+
+#%% Try the regression apporach (empirical RDM = intercept + conjunc RDM + stim RDM + rule RDM + run RDM)
+
+# To determine whether standardize both y and X or not
+standardize_xy = True
+
+# Create all the relevant model RDMs and put them into one design matrix
+idx_uptri_big = np.triu_indices(archetype_rdm.shape[0], k=1)
+
+conjunc_rdm_up = (1 * (~ within_task_bool))[idx_uptri_big]
+compo_stim_rdm_up = 1 * (~ same_stim_no_conjunc_bool)[idx_uptri_big]
+compo_rule_rdm_up = 1 * (~ same_rule_no_conjunc_bool)[idx_uptri_big]
+run_rdm_up = 1 * (~ same_rule_bool)[idx_uptri_big]
+
+X = np.stack([conjunc_rdm_up, compo_stim_rdm_up, compo_rule_rdm_up, run_rdm_up], axis=1)
+
+# Fitting the regression model and save all the coefficients into a dataframe
+condition_df = []
+ROI_df = []
+subj_df = []
+r_2 = []
+beta_conjunc = []
+beta_stim = []
+beta_rule = []
+beta_run = []
+
+for d4_idx, d4_suffix in enumerate(d4_files_suffixes):
+    
+   for ROI_idx, ROI in enumerate(ROIs):
+    
+       for subj_idx, subj in enumerate(subjs):
+           
+           task_RDM = np.squeeze(big_RDM[d4_idx, ROI_idx, subj_idx, :, :])
+           y = task_RDM[idx_uptri_big] # returns a 1-d numpy array
+           
+           # get rid of nan values
+           y_notnan_bool = ~np.isnan(y)
+           X_excl_nan = X[y_notnan_bool, :]
+           y_excl_nan = y[y_notnan_bool]
+           
+           # skip the regression if usable data is too little
+           if y_excl_nan.shape[0] < 100:      
+               continue           
+           
+           # fit the regression model
+           reg = Ridge(alpha=1.0, fit_intercept=True, positive=False)
+           reg.fit(X_excl_nan, y_excl_nan)         
+           r2_score = reg.score(X_excl_nan, y_excl_nan)
+           
+           # concatenate the data frame
+           r_2.extend([np.round(r2_score, 5)])
+           beta_conjunc.extend([np.round(reg.coef_[0], 5)])
+           beta_stim.extend([np.round(reg.coef_[1], 5)])
+           beta_rule.extend([np.round(reg.coef_[2], 5)])
+           beta_run.extend([np.round(reg.coef_[3], 5)])
+           
+           condition_df.extend([d4_suffix])
+           ROI_df.extend([ROI])
+           subj_df.extend([subj])
+
+#%% tryouts
+within_task_rsm = within_task_bool*1
+
+plt.imshow(within_task_rsm, cmap='viridis', interpolation='none')
+plt.colorbar()
+
+np.fill_diagonal(within_task_rsm, 2)
+
+small_within = funcs.big_rdm_to_small_within(within_task_rsm)
+plt.imshow(small_within, cmap='viridis', interpolation='none')
+plt.colorbar()
+
+small_between = funcs.big_rdm_to_small_between(within_task_rsm)
+plt.imshow(small_between, cmap='viridis', interpolation='none')
+plt.colorbar()
+
+#%% for visualization
+typical_big_RDM = np.nanmean(big_RDM, axis=(0,1,2)) - 0.2
+np.fill_diagonal(typical_big_RDM, 0)
+plt.imshow(typical_big_RDM, cmap='viridis', interpolation='none')
+plt.colorbar()
+
+noise = np.random.normal(loc=0, scale=0.05, size=typical_big_RDM.shape)
+np.fill_diagonal(noise, 0)
+noisy_big_RDM = typical_big_RDM + noise
+
+
+fig, ax = plt.subplots()
+im = ax.imshow(noisy_big_RDM, cmap='viridis', interpolation='none')
+ax.set_xticks([9,18,27,36])
+ax.set_yticks([9,18,27,36])
+fig.colorbar(im)
+
+
+# compositional model RDM
+fig, ax = plt.subplots()
+im = ax.imshow(small_model_RDM, cmap='viridis', interpolation='none')
+ax.set_xticks([0,1,2,3,4,5,6,7,8])
+ax.set_yticks([0,1,2,3,4,5,6,7,8])
+fig.colorbar(im)
+
+# conjunctive model RDM
+fig, ax = plt.subplots()
+im = ax.imshow(small_conjunc_model_RDM, cmap='viridis', interpolation='none')
+ax.set_xticks([0,1,2,3,4,5,6,7,8])
+ax.set_yticks([0,1,2,3,4,5,6,7,8])
+fig.colorbar(im)
+

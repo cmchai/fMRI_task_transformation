@@ -519,6 +519,16 @@ def  same_stim(tasks):
 
 same_stim_vec = np.vectorize(same_stim)
 
+def same_run(tasks):
+    run_model_rdm = np.zeros(tasks.shape, dtype=int)
+
+    for index, value in np.ndenumerate(run_model_rdm):
+        run_model_rdm[index] = (index[0]//9) == (index[1]//9)
+        
+    return run_model_rdm
+
+same_run_vec = np.vectorize(same_run)
+
 def  same_rule(tasks):
     tasks_vec = np.array([tasks[0], tasks[1]], dtype=int)
     both_age = np.in1d(tasks_vec, np.array([1,4,7], dtype=int)).all()
@@ -528,10 +538,11 @@ def  same_rule(tasks):
 
 same_rule_vec = np.vectorize(same_rule)
 
-def big_rdm_to_small(big_matrix):
+def big_rdm_to_small_within(big_matrix):
     '''
     Function to transform big run-by-run RDM or RSM(36*36) into small task-by-task RDM or RSM(9*9)
     the element of the resulting small RDM or RSM is the average across runs
+    Important! this function only take within-run data and average them
 
     Parameters
     ----------
@@ -557,6 +568,36 @@ def big_rdm_to_small(big_matrix):
     # small_matrix = (matrix_run1 + matrix_run2 + matrix_run3 + matrix_run4) / 4
     
     return small_matrix
-    
-    
 
+def big_rdm_to_small_between(big_matrix):
+    '''
+    Function to transform big run-by-run RDM or RSM(36*36) into small task-by-task RDM or RSM(9*9)
+    the element of the resulting small RDM or RSM is the average across runs
+    Important! this function only take between-run data and average them
+
+    Parameters
+    ----------
+    big_rdm : numpy array (double in data type) can be multi-dimensional, the last two dimension has to be 36*36
+
+    Returns
+    -------
+    small_rdm: the last two dimension is 9*9.
+
+    '''
+    
+    matrix_run12 = big_matrix[..., 0:9, 9:18] # the matrix of distance between 1st and 2nd run
+    matrix_run13 = big_matrix[..., 0:9, 18:27] # the matrix of distance between 1st and 3rd run
+    matrix_run14 = big_matrix[..., 0:9, 27:36] # the matrix of distance between 1st and 4th run
+    matrix_run23 = big_matrix[..., 9:18, 18:27] # the matrix of distance between 2nd and 3rd run
+    matrix_run24 = big_matrix[..., 9:18, 27:36] # the matrix of distance between 2nd and 4th run
+    matrix_run34 = big_matrix[..., 18:27, 27:36] # the matrix of distance between 3rd and 4th run
+    
+    # Stack the arrays into a single 3D array
+    stacked_matrics = np.stack([matrix_run12, matrix_run13, matrix_run14, matrix_run23, matrix_run24, matrix_run34])
+    
+    # Compute the average along the first axis, ignoring NaN values
+    small_matrix = np.nanmean(stacked_matrics, axis=0)       
+    
+    # small_matrix = (matrix_run1 + matrix_run2 + matrix_run3 + matrix_run4) / 4
+    
+    return small_matrix

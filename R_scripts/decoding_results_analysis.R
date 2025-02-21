@@ -19,6 +19,10 @@ library(emmeans)
 library(rempsyc)
 library(flextable)
 
+library(magick)
+library(cowplot)
+library(wesanderson)
+
 options(contrasts = c("contr.sum","contr.poly"))
 options(scipen=999)
 
@@ -27,7 +31,6 @@ options(scipen=999)
 #####################################################
 
 ### For Schaefer atlas -----
-
 col_names = c("ROI_index", "ROI_label", "col_a", "col_b", "col_c", "col_d")
 roi_labels_df = read.table('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/schaefer_2018/schaefer_2018/Schaefer2018_400Parcels_17Networks_order.txt',
                            sep='\t', 
@@ -47,11 +50,25 @@ results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task
   separate(ROI_label, into = c("network_amount", "hemisphere", "network_label", "parcel_label", "parcel_extra_nr"), sep = "_", extra = "merge")
 # filter(grepl("\\[", roi)) # add if the ROIs are combined together before decoding for Schaefer atlas
 
+###
+###
+###
 ### For Glasser atlas -----
 setwd('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser')
 
 Glasser_SupParcels <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/fmri-extract-HCP-mask-main/fpn_SupParcels.csv')
 
+# For reporting: saving the super parcel grouping into a word table
+fpn_Glasser_df <- Glasser_SupParcels %>%
+  filter(fpn_SupParcels %in% c("iPL", "dlPF", "aPF")) %>%
+  arrange(fpn_SupParcels)
+
+fpn_Glasser_table <- nice_table(fpn_Glasser_df, 
+                             title = "Table \nFPN super parcels")
+fpn_Glasser_table
+save_as_docx(fpn_Glasser_table, path = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/fmri-extract-HCP-mask-main/fpn_superparcels.docx")
+
+# check super parcel size
 GLasser_by_supparcels <- Glasser_SupParcels %>%
   group_by(fpn_SupParcels, fpn_labels) %>%
   summarise(count=n()) %>%
@@ -61,6 +78,7 @@ supparcels_labels <- GLasser_by_supparcels %>%
   filter(fpn_SupParcels == "iPL") %>%
   pull(fpn_labels)
 
+# import data
 results <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser/decodeAcc_smthN_spmT_rois_FPN_Glasser.csv') %>%
   mutate(task_dim = case_when(str_detect(condition, "stim") ~ "stim",
                               str_detect(condition, "rule") ~ "rule",
@@ -260,6 +278,23 @@ hemispheres <- c("LH", "RH")
 
 schaefer_parcel_to_fpn_sup <- tibble(parcels_network_fpn, fpn_SupParcels)
 
+# for reporting: the grouping of super parcels of FPN
+
+fpn_Schaefer_df <- roi_labels_df %>%
+  mutate(ROI_lab = ROI_label) %>%
+  separate(ROI_lab, into = c("network_amount", "hemisphere", "network_label", "parcel_label", "parcel_extra_nr"), sep = "_", extra = "merge") %>%
+  mutate(network_parcel = paste(network_label, parcel_label, sep = "_")) %>%
+  left_join(schaefer_parcel_to_fpn_sup, by = join_by(network_parcel == parcels_network_fpn)) %>%
+  filter(fpn_SupParcels %in% c("aPF", "dlPF", "iPL")) %>%
+  select(ROI_label, fpn_SupParcels) %>%
+  arrange(fpn_SupParcels)
+
+fpn_Schaefer_table <- nice_table(fpn_Schaefer_df, 
+                                title = "Table \nSchaefer FPN super parcels")
+fpn_Schaefer_table
+save_as_docx(fpn_Schaefer_table, path = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/resources/Atlas/schaefer_2018/schaefer_2018/schaefer_fpn_superparcels.docx") 
+
+# only select regions that we want to look at  
 parcel_retain <- c("IPS", "IPL","PFClv", "PFCl", "PFCv") # control A PFClv belong to dlPFC, control B PFClv belong to AFC
 
 results_schaefer_fpn <- results %>%
@@ -583,6 +618,9 @@ task_dims <- conditions$task_dim
 sup_parcels <- conditions$fpn_SupParcels
 hemispheres <- c("left", "right")
 
+# for saving plots for reporting, set working directory accordingly
+setwd("/Users/mengqiao/Documents/fMRI_task_transform/writing-up/reporting/multivariate/compositional_decode/stim")
+
 # t_dim <- c()
 # t_SupParcels <- c()
 # p_block <- c()
@@ -597,6 +635,8 @@ vec_dim <- c()
 vec_supPar <- c()
 vec_hem <- c()
 
+est_intercept <- c()
+p_intercept <- c()
 F_block <- c()
 p_block <- c()
 F_cti <- c()
@@ -636,15 +676,26 @@ for (i in 7:9) {
              fpn_SupParcels == sup_parcels[i],
              hemisphere == hemispheres[ii]) %>%
       convert_as_factor(subject, block_type, CTI_window, hemisphere, roi)
+    
+    if (task_dims[i] == "conjunc") { # define the chance level
+      chance <- 0.1111
+    } else {
+      chance <- 0.3333
+    }
 
-    inter_lme <- lmer(formula = mean_accuracy ~ block_type * CTI_window + (1 | subject),
+    inter_lme <- lmer(formula = mean_accuracy - chance ~ block_type * CTI_window + (1 | subject),
                       data = data_hem)
 
+    fixed_effects <- round(summary(inter_lme)$coefficients, 4)
     table_summary <- round(anova(inter_lme), 4)
 
     vec_dim <- c(vec_dim, task_dims[i])
     vec_supPar <- c(vec_supPar, sup_parcels[i])
     vec_hem <- c(vec_hem, hemispheres[ii])
+    
+    est_intercept <- c(est_intercept, fixed_effects["(Intercept)", "Estimate"])
+    p_intercept <- c(p_intercept, fixed_effects["(Intercept)", "Pr(>|t|)"])
+    
     F_block <- c(F_block, table_summary$`F value`[1])
     p_block <- c(p_block, table_summary$`Pr(>F)`[1])
     F_cti <- c(F_cti, table_summary$`F value`[2])
@@ -652,37 +703,43 @@ for (i in 7:9) {
     F_inter <- c(F_inter, table_summary$`F value`[3])
     p_inter <- c(p_inter, table_summary$`Pr(>F)`[3])
     
-    # ## plotting
-    # inter_summary <- data_interest %>%
-    #   filter(hemisphere == hemispheres[ii]) %>%
-    #   group_by(block_type, CTI_window) %>%
-    #   summarise(submean = mean(mean_accuracy, na.rm = TRUE),
-    #             subsd = sd(mean_accuracy, na.rm = TRUE),
-    #             se = subsd/((43)^.5)) %>%   # standard error
-    #   ungroup()
-    # 
-    # if (task_dims[i] == "conjunc") {
-    #   ymin = 0.10
-    #   ymax = 0.141
-    #   chance = 0.1111
-    # } else {
-    #   ymin = 0.28
-    #   ymax = 0.47
-    #   chance = 0.3333
-    # }
-    # 
-    # p4 <- ggplot(inter_summary, aes(x = CTI_window, y = submean, group = block_type, color = block_type)) +
-    #   scale_x_discrete(name ="CTI window",
-    #                    limits=c("short", "long"))+
-    #   geom_pointrange(aes(ymin = submean - se, ymax = submean + se),
+    ## plotting
+    inter_summary_0 <- data_interest %>%
+      filter(hemisphere == hemispheres[ii]) %>%
+      group_by(block_type, CTI_window, subject) %>%
+      summarise(mean_parcel_acc = mean(mean_accuracy, na.rm = TRUE))
+    
+    inter_summary <- data_interest %>%
+      filter(hemisphere == hemispheres[ii]) %>%
+      group_by(block_type, CTI_window) %>%
+      summarise(submean = mean(mean_accuracy, na.rm = TRUE),
+                subsd = sd(mean_accuracy, na.rm = TRUE),
+                se = subsd/((43)^.5)) %>%   # standard error
+      ungroup()
+
+    if (task_dims[i] == "conjunc") {
+      ymin = 0.10
+      ymax = 0.141
+      chance = 0.1111
+    } else {
+      ymin = 0.28
+      ymax = 0.47
+      chance = 0.3333
+    }
+
+    # individual level(dot) and group level plot together
+    # p3 <- ggplot(inter_summary_0, aes(x = CTI_window, y = mean_parcel_acc, group = block_type, color = block_type)) +
+    #   stat_slab() +
+    #   geom_pointrange(data = inter_summary, aes(x = CTI_window, y = submean, group = block_type, color = block_type, ymin = submean - se, ymax = submean + se),
     #                   size = 1.4, linewidth = 0.8,
     #                   position = position_dodge(0.00)) +
-    #   geom_line(size = 1.3) +
     #   scale_color_manual(values = alpha(c("#4E84C4", "#FC4E07"), .85),
     #                      name = "block type:",
     #                      breaks = c("RG", "TF")) +
     #   geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5) +
-    #   coord_cartesian(ylim=c(ymin, ymax)) +
+    #   scale_x_discrete(name ="CTI window",
+    #                    limits=c("short", "long")) +
+    #   coord_cartesian(ylim=c(0.03, 0.22)) +
     #   labs(y = "mean decoding acc") +
     #   # ggtitle(paste0("decoding acc in ", task_dims[i], " for ", hemispheres[ii], " ", sup_parcels[i])) +
     #   theme_bw() +
@@ -692,44 +749,216 @@ for (i in 7:9) {
     #         axis.text.x = element_text(size=14),
     #         axis.text.y = element_text(size=14))
     # 
-    # print(p4)
-    # ggsave(paste0(task_dims[i], "_SupParcel_", hemispheres[ii], " ", sup_parcels[i], ".png"), width = 2.6, height = 3)
+    # print(p3)
+    
+
+    p4 <- ggplot(inter_summary, aes(x = CTI_window, y = submean, group = block_type, color = block_type)) +
+      geom_hline(aes(yintercept=chance),linetype="dashed", size=0.5, color = 'grey47') +
+      geom_line(size = 1.3, position = position_dodge(0.06)) +
+      geom_pointrange(aes(ymin = submean - se, ymax = submean + se),
+                      size = 1.1, linewidth = 1.3,
+                      position = position_dodge(0.06), shape = 21, fill = "white", stroke = 1.4, linetype = 1) +
+      scale_x_discrete(name ="CTI window",
+                       limits=c("short", "long")) +
+      scale_color_manual(values = c("#00008B", "#DC143C"),
+                         name = "block type:",
+                         breaks = c("RG", "TF")) +
+      coord_cartesian(ylim=c(ymin, ymax)) +
+      labs(y = "Decoding accuracy") +
+      # ggtitle(paste0("decoding acc in ", task_dims[i], " for ", hemispheres[ii], " ", sup_parcels[i])) +
+      theme_half_open() +
+      theme(axis.title.x = element_text(size=11),
+            axis.title.y = element_text(size=11),
+            legend.position="none",
+            axis.text.x = element_text(size=11),
+            axis.text.y = element_text(size=11))
+
+    print(p4)
+    # image_path = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/afc_left.png"
+    # ggdraw(p4) + 
+    #   draw_image(image_path, x = 1, y = 1, hjust = 1, vjust = 1, width = 0.2, height = 0.2)
+    ggsave(paste0(task_dims[i], "_SupParcel_", hemispheres[ii], " ", sup_parcels[i], ".png"), width = 2.6, height = 3)
   }
 }
 
-decoding_glasser_fpn_stats_per_hem <- tibble(vec_dim, vec_supPar, vec_hem, F_block, p_block, F_cti, p_cti, F_inter, p_inter)
+decoding_glasser_fpn_stats_per_hem <- tibble(vec_dim, vec_supPar, vec_hem, est_intercept, p_intercept, F_block, p_block, F_cti, p_cti, F_inter, p_inter)
 decoding_glasser_fpn_stats_per_hem_table <- flextable(decoding_glasser_fpn_stats_per_hem)
 print(decoding_glasser_fpn_stats_per_hem_table)
 
 decoding_glasser_fpn_stats <- tibble(t_dim, t_SupParcels, p_block, p_cti, p_hem, p_block_by_cti, p_block_by_hem, p_cti_by_hem, p_3way)
 save(decoding_glasser_fpn_stats, file = "decoding_lme_results_rois_FPN_glasser.Rdata")
-load(file = "decoding_lme_results_rois_FPN_glasser.Rdata")
-load(file = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/independent_roi/conA_conB_defB/decoding_lme_results_rois_FPN_Schaefer.Rdata")
+load(file = "/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/Task_transform/decoding/roi_approach/w:o_feat_select/Glasser/decoding_lme_results_rois_FPN_glasser.Rdata")
 
-## conjunc decoding analysis of diff super parcels in one model
+############################################################
+### Decoding analysis of diff super parcels in one model ###
 
-conjunc_data_fpn <- results_only_fpn %>%
-  filter(task_dim == "conjunc") %>%
+# define which decoding results to look at
+task_dim_interest = "conjunc" # "conjunc", "stim", or "rule"
+
+if (task_dim_interest == "conjunc") {
+  chance = 0.1111
+} else {
+  chance = 0.3333
+}
+
+# select relevant data
+decode_data_fpn <- results_only_fpn %>%
+  filter(task_dim == task_dim_interest) %>%
   convert_as_factor(subject, block_type, CTI_window, hemisphere, fpn_SupParcels)
 
-## using mixed effect model
-
 # re-level CTI before fitting the model
-conjunc_data_fpn$CTI_window <- relevel(conjunc_data_fpn$CTI_window, ref = "short")
+decode_data_fpn$CTI_window <- relevel(decode_data_fpn$CTI_window, ref = "short")
 
-big_lme <- lmer(formula = mean_accuracy - 0.1111 ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (1 | subject),
-                  data = conjunc_data_fpn)
+levels(decode_data_fpn$fpn_SupParcels)
+levels(decode_data_fpn$CTI_window)
+levels(decode_data_fpn$block_type)
 
-summary(big_lme, correlation=FALSE)
+# fit the lme model
+big_lme <- lmer(formula = mean_accuracy - chance ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (1 | subject),
+                  data = decode_data_fpn)
+
 anova(big_lme)
+summary(big_lme, correlation=FALSE)
 
+## post-hoc analysis for conjunctive results
 emmeans(big_lme, ~ block_type)
 
+emm_1 <- emmeans(big_lme, ~ block_type * CTI_window | fpn_SupParcels)
 emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels)
+joint_tests(emm_1, by = "fpn_SupParcels") # do not adjust multiple comparison
+int_contrasts <- contrast(emm_1, interaction = "pairwise", adjust = "bonferroni") # the p adjust terms seems no use
+summary(int_contrasts)
 
-levels(conjunc_data_fpn$fpn_SupParcels)
-levels(conjunc_data_fpn$CTI_window)
-levels(conjunc_data_fpn$block_type)
+emm_2 <- emmeans(big_lme, ~ fpn_SupParcels * hemisphere | block_type)
+emmip(big_lme, fpn_SupParcels ~ hemisphere | block_type)
+joint_tests(emm_2, by = "block_type") # do not adjust multiple comparison
+
+## post-doc plotting for conjunctive results for publication
+conjunc_decode_block_stats<- results_only_fpn %>%
+  filter(task_dim == "conjunc") %>%
+  convert_as_factor(subject, block_type, CTI_window, hemisphere, fpn_SupParcels) %>%
+  group_by(block_type, subject) %>%
+  summarise(decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(block_type) %>%
+  summarise(submean = mean(decode_acc, na.rm = TRUE),
+            subsd = sd(decode_acc, na.rm = TRUE),
+            se = subsd/((43)^.5)) %>%   # standard error
+  ungroup()
+
+(
+  p_bar_1 <- ggplot(conjunc_decode_block_stats, aes(x = block_type, y = submean, color = block_type)) +
+    geom_hline(aes(yintercept=0.1111),linetype="dashed", linewidth=0.25) +
+    geom_bar(stat="identity", width = 0.5, fill = "white", linewidth = 1) +
+    geom_errorbar(aes(ymin=submean-se, ymax=submean+se), width=.1, linewidth=0.5) +
+    coord_cartesian(ylim=c(0.100, 0.130)) +
+    labs(y = "decoding accuracy", x = "block type") +
+    scale_x_discrete(limits=c("RG", "TF"), labels = c("Regular", "Transform")) +
+    scale_color_manual(values=c("#00008B", "#DC143C")) + theme_half_open() +
+    theme(legend.position = "none")
+)
+
+## post-hoc analysis for [compositional decoding - stimulus type] results
+emmeans(big_lme, ~ block_type)
+emmeans(big_lme, ~ CTI_window)
+emmeans(big_lme, ~ hemisphere)
+
+emmip(big_lme, block_type ~ hemisphere)
+emm_3 <- emmeans(big_lme, ~ block_type * hemisphere)
+joint_tests(emm_3, by = "block_type") # do not adjust multiple comparison
+
+emm_3 <- emmeans(big_lme, ~ block_type * hemisphere)
+joint_tests(emm_3, by = "block_type") # do not adjust multiple comparison
+
+emmip(big_lme, block_type ~ fpn_SupParcels)
+emmip(big_lme, fpn_SupParcels ~ block_type)
+emm_4 <- emmeans(big_lme, ~ block_type * fpn_SupParcels)
+joint_tests(emm_4, by = "fpn_SupParcels") # do not adjust multiple comparison
+
+emmip(big_lme, CTI_window ~ fpn_SupParcels)
+emm_5 <- emmeans(big_lme, ~ CTI_window * fpn_SupParcels)
+joint_tests(emm_5, by = "fpn_SupParcels") # do not adjust multiple comparison
+
+emmip(big_lme, hemisphere ~ fpn_SupParcels)
+emm_6 <- emmeans(big_lme, ~ hemisphere * fpn_SupParcels)
+joint_tests(emm_6, by = "fpn_SupParcels") # do not adjust multiple comparison
+
+(
+  p <- emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07"))
+)
+emm_7 <- emmeans(big_lme, ~ block_type * CTI_window | fpn_SupParcels)
+joint_tests(emm_7, by = "fpn_SupParcels") # do not adjust multiple comparison
+
+## post-doc plotting for stimlulus type decoding results for publication
+stim_decode_block_stats<- results_only_fpn %>%
+  filter(task_dim == "stim") %>%
+  convert_as_factor(subject, block_type, CTI_window, hemisphere, fpn_SupParcels) %>%
+  group_by(block_type, subject) %>%
+  summarise(decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(block_type) %>%
+  summarise(submean = mean(decode_acc, na.rm = TRUE),
+            subsd = sd(decode_acc, na.rm = TRUE),
+            se = subsd/((43)^.5)) %>%   # standard error
+  ungroup()
+
+(
+  p_bar_2 <- ggplot(stim_decode_block_stats, aes(x = block_type, y = submean, color = block_type)) +
+    geom_hline(aes(yintercept=0.3333),linetype="dashed", linewidth=0.25) +
+    geom_bar(stat="identity", width = 0.5, fill = "white", linewidth = 1) +
+    geom_errorbar(aes(ymin=submean-se, ymax=submean+se), width=.1, linewidth=0.5) +
+    coord_cartesian(ylim=c(0.32, 0.4)) +
+    labs(y = "decoding accuracy", x = "block type") +
+    scale_x_discrete(limits=c("RG", "TF"), labels = c("Regular", "Transform")) +
+    scale_color_manual(values=c("#00008B", "#DC143C")) + theme_half_open() +
+    theme(legend.position = "none")
+)
+
+## post-hoc analysis for [compositional decoding - task rule] results
+emmeans(big_lme, ~ block_type)
+emmeans(big_lme, ~ hemisphere)
+
+emm_8 <- emmeans(big_lme, ~ fpn_SupParcels)
+pair_8<- pairs(emm_8, adjust = "holm")
+
+(
+  p <- emmip(big_lme, block_type ~ CTI_window) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07"))
+)
+emm_9 <- emmeans(big_lme, ~ block_type * CTI_window)
+joint_tests(emm_9, by = "CTI_window") # do not adjust multiple comparison
+
+(
+  p <- emmip(big_lme, block_type ~ hemisphere | fpn_SupParcels) +
+    scale_color_manual(values = c("#4E84C4", "#FC4E07"))
+)
+
+## post-doc plotting for task rule decoding results for publication
+rule_decode_block_stats<- results_only_fpn %>%
+  filter(task_dim == "rule") %>%
+  convert_as_factor(subject, block_type, CTI_window, hemisphere, fpn_SupParcels) %>%
+  group_by(block_type, subject) %>%
+  summarise(decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(block_type) %>%
+  summarise(submean = mean(decode_acc, na.rm = TRUE),
+            subsd = sd(decode_acc, na.rm = TRUE),
+            se = subsd/((43)^.5)) %>%   # standard error
+  ungroup()
+
+(
+  p_bar_3 <- ggplot(rule_decode_block_stats, aes(x = block_type, y = submean, color = block_type)) +
+    geom_hline(aes(yintercept=0.3333),linetype="dashed", linewidth=0.25) +
+    geom_bar(stat="identity", width = 0.5, fill = "white", linewidth = 1) +
+    geom_errorbar(aes(ymin=submean-se, ymax=submean+se), width=.1, linewidth=0.5) +
+    coord_cartesian(ylim=c(0.32, 0.4)) +
+    labs(y = "decoding accuracy", x = "block type") +
+    scale_x_discrete(limits=c("RG", "TF"), labels = c("Regular", "Transform")) +
+    scale_color_manual(values=c("#00008B", "#DC143C")) + theme_half_open() +
+    theme(legend.position = "none")
+)
+
 
 ############# garbage code #############
 
@@ -1225,7 +1454,6 @@ results_aud <- read_csv('/Users/mengqiao/Documents/fMRI_task_transform/MRI_data/
                               .default = "conjunc"),
          block_type = if_else(str_detect(condition, "RG-"), "RG", "TF"),
          CTI_window = if_else(str_detect(condition, "c1"), "short", "long")) %>%
-  left_join(aud_roi_mapping) %>%
   mutate(roi_glas = str_extract(roi, "^[^_]+"),
          hemisphere = str_extract(roi, "(?<=_)[^.]+")) %>%
   convert_as_factor(CTI_window, block_type, hemisphere, subject)
@@ -1279,3 +1507,60 @@ for (i in 1:length(hemispheres)) {
             axis.text.y = element_text(size=14))
     print(p4)
   }
+
+## Compare decoding acc between FPN and Auditory ROIs
+# run a t-test to compare
+fpn_subj_stats <- decode_data_fpn %>%
+  group_by(subject) %>%
+  summarise(fpn_decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() 
+
+aud_subj_stats <- results_aud %>%
+  group_by(subject) %>%
+  summarise(aud_decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup()
+
+for_t_test <- fpn_subj_stats %>%
+  left_join(aud_subj_stats, by = "subject")
+
+t.test(for_t_test$fpn_decode_acc, for_t_test$aud_decode_acc, paired = TRUE, alternative = "two.sided")
+
+# plotting for publication
+fpn_bar_stats <- decode_data_fpn %>%
+  group_by(subject) %>%
+  summarise(subj_decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  summarise(decode_acc_overall = mean(subj_decode_acc, na.rm = TRUE), 
+            subsd = sd(subj_decode_acc, na.rm = TRUE),
+            se = subsd/((43)^.5)) %>%
+  mutate(network = "FPN")
+
+
+aud_bar_stats <- results_aud %>%
+  group_by(subject) %>%
+  summarise(subj_decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  summarise(decode_acc_overall = mean(subj_decode_acc, na.rm = TRUE), 
+            subsd = sd(subj_decode_acc, na.rm = TRUE),
+            se = subsd/((43)^.5))%>%
+  mutate(network = "AUD")
+
+bar_fpn_aud_stats <- rbind(fpn_bar_stats, aud_bar_stats)
+
+library(wesanderson)
+
+(
+  p_bar_0 <- ggplot(bar_fpn_aud_stats, aes(x = network, y = decode_acc_overall, color = network)) +
+    geom_hline(aes(yintercept=0.1111),linetype="dashed", linewidth=0.25) +
+    geom_bar(stat="identity", width = 0.5, fill = "white", linewidth = 1) +
+    geom_errorbar(aes(ymin=decode_acc_overall-se, ymax=decode_acc_overall+se), width=.1, linewidth=0.5) +
+    coord_cartesian(ylim=c(0.100, 0.125)) +
+    labs(y = "decoding accuracy") +
+    scale_x_discrete(limits=c("FPN", "AUD")) +
+    scale_color_manual(values=wes_palette(n=2, name="Darjeeling1"), breaks = c("FPN", "AUD")) + theme_half_open()
+)
+
+
+
+
+
