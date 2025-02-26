@@ -285,6 +285,33 @@ model_consist <- lmer(formula = mean_spear_coef ~ fpn_SupParcels * hemisphere * 
 summary(model_consist, correlation= FALSE)
 anova(model_consist)
 
+# saving the table for reporting
+table_saving_folder <- "/Users/mengqiao/Documents/fMRI_task_transform/writing-up/reporting/multivariate/stats_tables"
+table_name <- "stats_table_pattern_consist"
+table_title <- "The results of linear mixed effect model on voxel pattern consistency"
+
+stats.table <- as.data.frame(summary(model_consist)$coefficients)
+names(stats.table) <- c("estimate", "SE", "df", "t value", "p")
+
+stats.table2 <- as.data.frame(matrix(ncol = 4, nrow = length(row.names(stats.table))))
+colnames(stats.table2) <- c('Coefficient', 'Estimate', 'SE', 'p value')
+
+stats.table2$Coefficient <- row.names(stats.table)
+stats.table2$Estimate <- round(stats.table$estimate, digit= 4)
+stats.table2$SE <- round(stats.table$SE, digit= 4)
+stats.table2$"p value" <- round(stats.table$p, digit= 4)
+
+fun_round <- function(x) {formatC(x, format = "f", digits = 4)}
+
+table_ready <- nice_table(stats.table2, 
+                          col.format.p = 4,
+                          col.format.custom = 2:3,
+                          format.custom = "fun_round",
+                          title = paste0("Table \n", table_title), 
+                          note = "SE = standard error.\n* denotes p < .05,** denotes p < .01, *** denates p < .001")
+table_ready
+save_as_docx(table_ready, path = paste0(table_saving_folder, "/", table_name,".docx"))
+
 ## post-hoc check on the results
 marginal_SupParcels <- emmeans(model_consist, "fpn_SupParcels")
 pairs(marginal_SupParcels)

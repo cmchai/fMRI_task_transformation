@@ -817,10 +817,45 @@ levels(decode_data_fpn$block_type)
 big_lme <- lmer(formula = mean_accuracy - chance ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (1 | subject),
                   data = decode_data_fpn)
 
+big_lme_max <- lmer(formula = mean_accuracy - chance ~ block_type * CTI_window * hemisphere * fpn_SupParcels + (block_type + CTI_window + hemisphere + fpn_SupParcels | subject),
+                data = decode_data_fpn)
+
 anova(big_lme)
 summary(big_lme, correlation=FALSE)
 
+fixed_effects <- fixef(big_lme)
+print(fixed_effects)
+
+# saving the table for reporting
+table_saving_folder <- "/Users/mengqiao/Documents/fMRI_task_transform/writing-up/reporting/multivariate/stats_tables"
+table_name <- "stats_table_conjunc_decode"
+table_title <- "The results of linear mixed effect model on conjunctive task decoding"
+
+stats.table <- as.data.frame(summary(big_lme)$coefficients)
+names(stats.table) <- c("estimate", "SE", "df", "t value", "p")
+
+stats.table2 <- as.data.frame(matrix(ncol = 4, nrow = length(row.names(stats.table))))
+colnames(stats.table2) <- c('Coefficient', 'Estimate', 'SE', 'p value')
+
+stats.table2$Coefficient <- row.names(stats.table)
+stats.table2$Estimate <- round(stats.table$estimate, digit= 4)
+stats.table2$SE <- round(stats.table$SE, digit= 4)
+stats.table2$"p value" <- round(stats.table$p, digit= 4)
+
+fun_round <- function(x) {formatC(x, format = "f", digits = 4)}
+
+table_ready <- nice_table(stats.table2, 
+                            col.format.p = 4,
+                            col.format.custom = 2:3,
+                            format.custom = "fun_round",
+                            title = paste0("Table \n", table_title), 
+                            note = "SE = standard error.\n* denotes p < .05,** denotes p < .01, *** denates p < .001")
+table_ready
+save_as_docx(table_ready, path = paste0(table_saving_folder, "/", table_name,".docx"))
+
 ## post-hoc analysis for conjunctive results
+emm_options(pbkrtest.limit = 5848)
+
 emmeans(big_lme, ~ block_type)
 
 emm_1 <- emmeans(big_lme, ~ block_type * CTI_window | fpn_SupParcels)
@@ -828,12 +863,15 @@ emmip(big_lme, block_type ~ CTI_window | fpn_SupParcels)
 joint_tests(emm_1, by = "fpn_SupParcels") # do not adjust multiple comparison
 int_contrasts <- contrast(emm_1, interaction = "pairwise", adjust = "bonferroni") # the p adjust terms seems no use
 summary(int_contrasts)
+p.ajust
+
+
 
 emm_2 <- emmeans(big_lme, ~ fpn_SupParcels * hemisphere | block_type)
 emmip(big_lme, fpn_SupParcels ~ hemisphere | block_type)
 joint_tests(emm_2, by = "block_type") # do not adjust multiple comparison
 
-## post-doc plotting for conjunctive results for publication
+## post-hoc plotting for conjunctive results for publication
 conjunc_decode_block_stats<- results_only_fpn %>%
   filter(task_dim == "conjunc") %>%
   convert_as_factor(subject, block_type, CTI_window, hemisphere, fpn_SupParcels) %>%
@@ -958,6 +996,57 @@ rule_decode_block_stats<- results_only_fpn %>%
     scale_color_manual(values=c("#00008B", "#DC143C")) + theme_half_open() +
     theme(legend.position = "none")
 )
+
+## the [long-short] for transform condition between conjunctive and compositional decoding
+
+# for conjunc
+conjunc_long_short_transforn <- results_only_fpn %>%
+  filter(task_dim == "conjunc", hemisphere == "right", block_type == "TF") %>%
+  filter(!fpn_SupParcels == "dlPF") %>%
+  group_by(subject, CTI_window) %>%
+  summarise(mean_decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = CTI_window, values_from = mean_decode_acc) %>%
+  mutate(conjunc_long_short = long - short)
+
+mean(conjunc_long_short_transforn$conjunc_long_short)
+t.test(conjunc_long_short_transforn$conjunc_long_short, alternative = "less")
+
+
+(
+  p <- ggplot(conjunc_long_short_transforn, aes(x=conjunc_long_short)) +
+    geom_density(fill="#69b3a2", color="#e9ecef", alpha=0.8) +
+    ggtitle("diff between") +
+    theme_half_open()
+)
+
+# for compositional
+compo_long_short_transforn <- results_only_fpn %>%
+  filter(!task_dim == "conjunc") %>%
+  filter(hemisphere == "right", block_type == "TF") %>%
+  filter(!fpn_SupParcels == "dlPF") %>%
+  group_by(subject, CTI_window) %>%
+  summarise(mean_decode_acc = mean(mean_accuracy, na.rm = TRUE)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = CTI_window, values_from = mean_decode_acc) %>%
+  mutate(comp_long_short = long - short)
+
+mean(compo_long_short_transforn$comp_long_short)
+t.test(compo_long_short_transforn$comp_long_short, alternative = "greater")
+
+t.test(compo_long_short_transforn$comp_long_short, 
+       conjunc_long_short_transforn$conjunc_long_short,
+       paired = TRUE,
+       alternative = "greater")
+(
+  p <- ggplot(compo_long_short_transforn, aes(x=compo_long_short_transforn)) +
+    geom_density(fill="#69b3a2", color="#e9ecef", alpha=0.8) +
+    ggtitle("diff between") +
+    theme_half_open()
+)
+
+
+long_short_tf_compo_conjunc <- 
 
 
 ############# garbage code #############
